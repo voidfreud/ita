@@ -20,6 +20,8 @@ THEME_SHORTCUTS = {
 @click.option('--window', 'window_only', is_flag=True, help='Save current window only')
 def save(name, window_only):
     """Save current layout as named arrangement."""
+    if not name.strip():
+        raise click.ClickException("Name cannot be empty")
     async def _run(connection):
         if window_only:
             app = await iterm2.async_get_app(connection)
@@ -37,7 +39,13 @@ def save(name, window_only):
 def restore(name):
     """Restore named arrangement."""
     async def _run(connection):
-        await iterm2.Arrangement.async_restore(connection, name)
+        try:
+            await iterm2.Arrangement.async_restore(connection, name)
+        except Exception as e:
+            msg = str(e)
+            if 'ARRANGEMENT_NOT_FOUND' in msg or 'NOT_FOUND' in msg:
+                raise click.ClickException(f"Arrangement {name!r} not found")
+            raise click.ClickException(f"Failed to restore {name!r}: {msg}") from e
     run_iterm(_run)
     click.echo(f"Restored: {name}")
 
@@ -48,7 +56,8 @@ def layouts():
     async def _run(connection):
         return await iterm2.Arrangement.async_list(connection)
     for n in (run_iterm(_run) or []):
-        click.echo(n)
+        if n and n.strip():
+            click.echo(n)
 
 
 # ── Profiles ──────────────────────────────────────────────────────────────
@@ -83,8 +92,22 @@ def profile_show(name, session_id):
             p = next((x for x in profiles if x.name == name), None)
             if not p:
                 raise click.ClickException(f"Profile {name!r} not found")
-        return {'name': p.name, 'guid': p.guid}
-    click.echo(json.dumps(run_iterm(_run), indent=2))
+        # Collect a useful subset of properties
+        result = {'name': p.name, 'guid': p.guid}
+        for attr in ('foreground_color', 'background_color', 'cursor_color',
+                     'normal_font', 'non_ascii_font', 'use_non_ascii_font',
+                     'horizontal_spacing', 'vertical_spacing', 'cursor_type',
+                     'transparency', 'blur', 'badge_text', 'command',
+                     'working_directory', 'initial_text'):
+            try:
+                val = getattr(p, attr, None)
+                if val is not None:
+                    # Some props are objects (Color) — stringify
+                    result[attr] = str(val) if not isinstance(val, (str, int, float, bool)) else val
+            except Exception:
+                pass
+        return result
+    click.echo(json.dumps(run_iterm(_run), indent=2, default=str))
 
 
 @profile.command('apply')
@@ -108,9 +131,15 @@ def profile_apply(name, session_id):
 @click.option('-s', '--session', 'session_id', default=None)
 def profile_set(property_name, value, session_id):
     """Set a profile property on session."""
+    if not property_name.strip():
+        raise click.ClickException("Profile property name cannot be empty")
+    change = iterm2.LocalWriteOnlyProfile()
+    if not hasattr(change, property_name):
+        raise click.ClickException(
+            f"Unknown profile property: {property_name!r}. "
+            "See iterm2.LocalWriteOnlyProfile for valid setters.")
     async def _run(connection):
         session = await resolve_session(connection, session_id)
-        change = iterm2.LocalWriteOnlyProfile()
         setattr(change, property_name, value)
         await session.async_set_profile_properties(change)
     run_iterm(_run)
