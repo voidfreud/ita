@@ -74,10 +74,11 @@ def focus(use_json):
 @cli.command()
 def version():
     """Show iTerm2 app version."""
-    async def _run(connection):
-        app = await iterm2.async_get_app(connection)
-        return await app.async_get_variable('iterm2.version')
-    click.echo(run_iterm(_run) or 'unknown')
+    import subprocess
+    result = subprocess.run(
+        ['osascript', '-e', 'tell application "iTerm2" to get version'],
+        capture_output=True, text=True)
+    click.echo(result.stdout.strip() or 'unknown')
 
 
 @cli.command()

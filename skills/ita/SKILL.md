@@ -1,6 +1,6 @@
 ---
 name: ita
-description: "Agent-first iTerm2 control. Full command reference for sending text to iTerm2 sessions, reading output via ScreenStreamer, managing tabs/windows/split panes, running commands atomically with wait-for-completion, event monitoring, tmux -CC workflows, macOS dialogs, arrangements, profiles, visual feedback, and preferences. Read this skill whenever you need to DO anything with iTerm2 — orient, send a command, check what's running, read output, set up a layout, react to events, use tmux, or configure the terminal. Don't answer iTerm2 action requests from memory — read this skill first."
+description: "This skill should be used when the user asks to control, manage, or interact with iTerm2 — running commands in a terminal pane, reading terminal output, creating/closing tabs or windows, splitting panes, saving layouts (arrangements), watching for output patterns, sending Ctrl+C, using tmux -CC, showing macOS dialogs from a script, or applying color themes. Activates on phrases like 'run in terminal', 'create a new tab', 'split the pane', 'read the output', 'wait for server ready', 'watch the terminal', 'set up a workspace', 'send Ctrl+C to iTerm2', 'use tmux', 'save the layout', or any request to DO something with iTerm2. Consult this skill instead of answering iTerm2 action requests from memory."
 ---
 
 # ita — iTerm Agent
@@ -19,7 +19,7 @@ ita <command> [OPTIONS] [ARGS]
 
 2. **Sticky context model.** `ita new` sets the sticky target. All subsequent commands target it by default. Override per-command with `-s SESSION_ID`, change permanently with `ita use SESSION_ID`, clear with `ita use --clear`. The sticky target is stored in `~/.ita_context`.
 
-3. **Plain text by default. `--json` only when parsing.** Use `--json` only when you need to extract structured data (IDs, exit codes, etc.). Otherwise, plain text is much smaller in context.
+3. **Plain text by default. `--json` only when parsing.** Pass `--json` only when extracting structured data (IDs, exit codes, etc.). Plain text is much smaller in context for human reading.
 
 4. **Null bytes are stripped at source.** You'll never see `\u0000` garbage in `ita` output — the tool handles it internally.
 
@@ -84,7 +84,7 @@ ita run "ls" -n 100             # return more output lines (default: 50)
 ita run "echo hello" --json     # {"output": "...", "elapsed_ms": 123}
 ```
 
-Use this for any command where you want the result. It handles the entire cycle in one call.
+Use this for any command where the result matters. Handles the entire cycle in one call.
 
 ### `ita send` — fire and forget
 
@@ -121,9 +121,9 @@ ita copy                        # copy selection to macOS clipboard
 ita get-prompt                  # last prompt info: cwd, command, exit code
 ```
 
-**`ita read` is always clean** — null bytes stripped, trailing blank lines trimmed. Prefer over `ita capture` unless you need the whole screen.
+**`ita read` is always clean** — null bytes stripped, trailing blank lines trimmed. Prefer over `ita capture` unless the whole visible screen is needed.
 
-**`ita watch` uses ScreenStreamer** — the terminal pushes updates to you in real time. Exits automatically when a prompt character appears.
+**`ita watch` uses ScreenStreamer** — the terminal pushes updates in real time. Exits automatically when a prompt character appears.
 
 ---
 
