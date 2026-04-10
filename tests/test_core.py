@@ -1,20 +1,10 @@
 # tests/test_core.py
 """Unit tests for _core.py pure functions (no iTerm2 connection needed)."""
 import sys
-import types
 from pathlib import Path
 import pytest
 
 sys.path.insert(0, str(Path(__file__).parent.parent / 'src'))
-
-# Stub out heavy optional dependencies so _core.py can be imported without
-# a real iTerm2 environment or click installation in the test venv.
-# We use MagicMock so attribute access (e.g. @click.group()) works at import time.
-from unittest.mock import MagicMock
-
-for _mod in ('click', 'iterm2'):
-    if _mod not in sys.modules:
-        sys.modules[_mod] = MagicMock()
 
 
 def test_strip_removes_null_bytes():
