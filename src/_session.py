@@ -35,6 +35,8 @@ def new(new_window, profile):
 @click.option('-s', '--session', 'session_id', default=None)
 def close(session_id):
     """Close session. Clears sticky if it was the target."""
+    if session_id is not None and not session_id.strip():
+        raise click.ClickException("--session cannot be empty")
     was_sticky = session_id == get_sticky() or (not session_id and get_sticky())
 
     async def _run(connection):

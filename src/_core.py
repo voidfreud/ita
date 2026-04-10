@@ -101,6 +101,19 @@ async def resolve_session(connection, session_id: str | None = None) -> 'iterm2.
         session = app.get_session_by_id(sid)
         if session:
             return session
+        # Prefix match fallback — makes the 8-char IDs from `ita status` usable.
+        sid_lower = sid.lower()
+        matches = []
+        for window in app.terminal_windows:
+            for tab in window.tabs:
+                for s in tab.sessions:
+                    if s.session_id.lower().startswith(sid_lower):
+                        matches.append(s)
+        if len(matches) == 1:
+            return matches[0]
+        if len(matches) > 1:
+            raise click.ClickException(
+                f"Session prefix {sid!r} is ambiguous: matches {len(matches)} sessions.")
         raise click.ClickException(
             f"Session {sid!r} not found. Run 'ita status' to list sessions."
         )

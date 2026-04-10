@@ -28,7 +28,7 @@ def status(use_json):
                     })
         return sessions
 
-    sessions = run_iterm(_run)
+    sessions = run_iterm(_run) or []
 
     if use_json:
         click.echo(json.dumps(sessions, indent=2))
@@ -94,5 +94,27 @@ def use(session_id, clear):
         current = get_sticky()
         click.echo(f"Current target: {current or '(none)'}")
         return
-    set_sticky(session_id)
-    click.echo(f"Target set: {session_id}")
+    # Validate the session exists before pinning it
+    async def _verify(connection):
+        app = await iterm2.async_get_app(connection)
+        s = app.get_session_by_id(session_id)
+        if s:
+            return s.session_id
+        # Try prefix match across all sessions
+        sid_lower = session_id.lower()
+        matches = []
+        for window in app.terminal_windows:
+            for tab in window.tabs:
+                for sess in tab.sessions:
+                    if sess.session_id.lower().startswith(sid_lower):
+                        matches.append(sess.session_id)
+        if len(matches) == 1:
+            return matches[0]
+        if len(matches) > 1:
+            raise click.ClickException(
+                f"Session prefix {session_id!r} is ambiguous: matches {len(matches)} sessions.")
+        raise click.ClickException(
+            f"Session {session_id!r} not found. Run 'ita status' to list sessions.")
+    resolved = run_iterm(_verify)
+    set_sticky(resolved)
+    click.echo(f"Target set: {resolved}")
