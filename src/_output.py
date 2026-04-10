@@ -10,6 +10,16 @@ from _core import cli, run_iterm, resolve_session, strip
 PROMPT_CHARS = ('❯', '$', '#', '%', '→', '>>')
 
 
+def _last_non_empty_index(contents):
+    """Last non-empty line index in a ScreenContents, or -1 if blank.
+    number_of_lines is grid height, not content height — scan backward
+    to find actual content."""
+    for i in range(contents.number_of_lines - 1, -1, -1):
+        if strip(contents.line(i).string).strip():
+            return i
+    return -1
+
+
 @cli.command()
 @click.argument('lines', default=20, type=int)
 @click.option('--json', 'use_json', is_flag=True)
@@ -19,9 +29,11 @@ def read(lines, use_json, session_id):
     async def _run(connection):
         session = await resolve_session(connection, session_id)
         contents = await session.async_get_screen_contents()
-        total = contents.number_of_lines_with_history
-        start = max(0, total - lines)
-        result = [strip(contents.line(i).string) for i in range(start, total)]
+        last_idx = _last_non_empty_index(contents)
+        if last_idx < 0:
+            return []
+        start = max(0, last_idx + 1 - lines)
+        result = [strip(contents.line(i).string) for i in range(start, last_idx + 1)]
         while result and not result[-1].strip():
             result.pop()
         return result
@@ -48,7 +60,10 @@ def watch(session_id):
                     if line and line not in seen:
                         seen.add(line)
                         click.echo(line)
-                last = strip(contents.line(contents.number_of_lines - 1).string).strip()
+                last_idx = _last_non_empty_index(contents)
+                if last_idx < 0:
+                    continue
+                last = strip(contents.line(last_idx).string).strip()
                 if any(last.startswith(p) or last.endswith(p) for p in PROMPT_CHARS):
                     break
 
@@ -72,7 +87,10 @@ def wait(pattern, timeout, session_id):
                             if pattern in strip(contents.line(i).string):
                                 return True
                     else:
-                        last = strip(contents.line(contents.number_of_lines - 1).string).strip()
+                        last_idx = _last_non_empty_index(contents)
+                        if last_idx < 0:
+                            continue
+                        last = strip(contents.line(last_idx).string).strip()
                         if any(last.startswith(p) or last.endswith(p) for p in PROMPT_CHARS):
                             return True
                 except asyncio.TimeoutError:

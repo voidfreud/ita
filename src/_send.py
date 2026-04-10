@@ -11,6 +11,16 @@ from _core import cli, run_iterm, resolve_session, strip
 PROMPT_CHARS = ('❯', '$', '#', '%', '→', '>>')
 
 
+def _last_non_empty_index(contents):
+	"""Last non-empty line index in a ScreenContents, or -1 if the grid is blank.
+	number_of_lines is grid height, not content height — the bottom rows are
+	usually empty whitespace, so the caller must scan backward to find content."""
+	for i in range(contents.number_of_lines - 1, -1, -1):
+		if strip(contents.line(i).string).strip():
+			return i
+	return -1
+
+
 @cli.command()
 @click.argument('cmd')
 @click.option('-t', '--timeout', default=30, type=int, help='Timeout seconds (default: 30)')
@@ -21,32 +31,46 @@ def run(cmd, timeout, lines, use_json, session_id):
 	"""Send command, wait for completion, return clean output. Atomic — one call does all."""
 	async def _run(connection):
 		session = await resolve_session(connection, session_id)
-		await session.async_send_text(cmd + '\n')
 		start = time.time()
 
-		# Wait for completion via ScreenStreamer (event-driven, no polling)
+		# Wait for completion via ScreenStreamer (event-driven, no polling).
+		# Subscribe BEFORE sending so instant commands don't race past us.
 		async with session.get_screen_streamer() as streamer:
+			await session.async_send_text(cmd + '\n')
+			cmd_seen = False
 			for _ in range(timeout * 4):
 				try:
 					contents = await asyncio.wait_for(streamer.async_get(), timeout=1.0)
-					last = strip(contents.line(contents.number_of_lines - 1).string).strip()
-					if any(last.startswith(p) or last.endswith(p) for p in PROMPT_CHARS):
-						break
+					last_idx = _last_non_empty_index(contents)
+					if last_idx < 0:
+						continue
+					if not cmd_seen:
+						screen_text = '\n'.join(
+							strip(contents.line(i).string)
+							for i in range(last_idx + 1)
+						)
+						if cmd in screen_text:
+							cmd_seen = True
+					if cmd_seen:
+						last = strip(contents.line(last_idx).string).strip()
+						if any(last.startswith(p) or last.endswith(p) for p in PROMPT_CHARS):
+							break
 				except asyncio.TimeoutError:
 					continue
 
 		elapsed_ms = int((time.time() - start) * 1000)
 
-		# Read output from screen contents
+		# Read output: slice backward from the last non-empty line.
 		contents = await session.async_get_screen_contents()
-		total = contents.number_of_lines_with_history
-		start_line = max(0, total - lines)
-		output_lines = []
-		for i in range(start_line, total):
-			output_lines.append(strip(contents.line(i).string))
-		while output_lines and not output_lines[-1].strip():
-			output_lines.pop()
-		output = '\n'.join(output_lines)
+		last_idx = _last_non_empty_index(contents)
+		if last_idx < 0:
+			output = ''
+		else:
+			start_line = max(0, last_idx + 1 - lines)
+			output_lines = [strip(contents.line(i).string) for i in range(start_line, last_idx + 1)]
+			while output_lines and not output_lines[-1].strip():
+				output_lines.pop()
+			output = '\n'.join(output_lines)
 
 		return output, elapsed_ms
 
