@@ -61,6 +61,8 @@ def activate(session_id_arg):
 @click.option('-s', '--session', 'session_id', default=None)
 def name(title, session_id):
     """Rename session."""
+    if not title.strip():
+        raise click.ClickException("Name cannot be empty")
     async def _run(connection):
         session = await resolve_session(connection, session_id)
         await session.async_set_name(title)
@@ -116,7 +118,10 @@ def capture(file, session_id):
 
     output = run_iterm(_run)
     if file:
-        Path(file).write_text(output)
+        try:
+            Path(file).expanduser().write_text(output)
+        except (FileNotFoundError, PermissionError, IsADirectoryError) as e:
+            raise click.ClickException(f"Cannot write {file}: {e}") from e
         click.echo(f"Saved to {file}")
     else:
         click.echo(output)

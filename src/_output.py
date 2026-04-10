@@ -9,7 +9,7 @@ from _core import cli, run_iterm, resolve_session, strip, PROMPT_CHARS, last_non
 
 
 @cli.command()
-@click.argument('lines', default=20, type=int)
+@click.argument('lines', default=20, type=click.IntRange(min=1))
 @click.option('--json', 'use_json', is_flag=True)
 @click.option('-s', '--session', 'session_id', default=None)
 def read(lines, use_json, session_id):
@@ -101,7 +101,10 @@ def selection(session_id):
             return ''
         text = await session.async_get_selection_text(sel)
         return strip(text or '')
-    click.echo(run_iterm(_run))
+    text = run_iterm(_run)
+    if not text:
+        raise click.ClickException("No selection.")
+    click.echo(text)
 
 
 @cli.command()
@@ -116,11 +119,10 @@ def copy(session_id):
         text = await session.async_get_selection_text(sel)
         return strip(text or '')
     text = run_iterm(_run)
-    if text:
-        subprocess.run(['pbcopy'], input=text.encode(), check=True)
-        click.echo(f"Copied {len(text)} chars to clipboard.")
-    else:
-        click.echo("No selection.")
+    if not text:
+        raise click.ClickException("No selection.")
+    subprocess.run(['pbcopy'], input=text.encode(), check=True)
+    click.echo(f"Copied {len(text)} chars to clipboard.")
 
 
 @cli.command('get-prompt')
