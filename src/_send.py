@@ -14,8 +14,8 @@ from _core import cli, run_iterm, resolve_session, strip, PROMPT_CHARS, last_non
 
 @cli.command()
 @click.argument('cmd')
-@click.option('-t', '--timeout', default=30, type=int, help='Timeout seconds (default: 30)')
-@click.option('-n', '--lines', default=50, type=int, help='Output lines to return (default: 50)')
+@click.option('-t', '--timeout', default=30, type=click.IntRange(min=1), help='Timeout seconds (default: 30)')
+@click.option('-n', '--lines', default=50, type=click.IntRange(min=1), help='Output lines to return (default: 50)')
 @click.option('--json', 'use_json', is_flag=True)
 @click.option('-s', '--session', 'session_id', default=None)
 def run(cmd, timeout, lines, use_json, session_id):
@@ -23,6 +23,8 @@ def run(cmd, timeout, lines, use_json, session_id):
 	The command runs in a subshell so `exit`, `cd`, and env mutations stay
 	isolated — use `ita send` for state-persistent commands. Exit-code capture
 	requires iTerm2 shell integration to be active in the session."""
+	if not cmd.strip():
+		raise click.ClickException('run requires a non-empty command')
 	async def _run(connection):
 		session = await resolve_session(connection, session_id)
 		start = time.time()
@@ -128,7 +130,11 @@ def inject(data, is_hex, session_id):
 	async def _run(connection):
 		session = await resolve_session(connection, session_id)
 		if is_hex:
-			raw = bytes.fromhex(data.replace(' ', ''))
+			try:
+				raw = bytes.fromhex(data.replace(' ', ''))
+			except ValueError as e:
+				raise click.ClickException(
+					f"Invalid hex data: {data!r}. Use two-character pairs (e.g. '03' for Ctrl+C).") from e
 		else:
 			raw = data.encode('utf-8').decode('unicode_escape').encode('latin-1')
 		await session.async_inject(raw)
