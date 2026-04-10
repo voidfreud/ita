@@ -15,17 +15,17 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 from _core import cli  # noqa: E402 — must come after sys.path modification
 
-# Modules will be imported here once built (Tasks 3-12)
-# import _orientation
-# import _session
-# import _io
-# import _output
-# import _layout
-# import _management
-# import _config
-# import _interactive
-# import _tmux
-# import _events
+# Import all modules — each registers its commands on `cli` at import time
+import _orientation  # noqa: E402, F401 — status, focus, version, use
+import _session      # noqa: E402, F401 — new, close, activate, name, restart, resize, clear, capture
+import _io           # noqa: E402, F401 — run, send, inject
+import _output       # noqa: E402, F401 — read, watch, wait, selection, copy, get-prompt
+import _layout       # noqa: E402, F401 — split, pane, move, tab group, window group
+import _management   # noqa: E402, F401 — save, restore, layouts, profile group, presets, theme
+import _config       # noqa: E402, F401 — var, app, pref, broadcast groups
+import _interactive  # noqa: E402, F401 — alert, ask, pick, save-dialog, menu group, repl
+import _tmux         # noqa: E402, F401 — tmux -CC group
+import _events       # noqa: E402, F401 — on group, coprocess, annotate, rpc
 
 if __name__ == '__main__':
     cli()
