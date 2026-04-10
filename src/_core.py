@@ -1,0 +1,109 @@
+# src/_core.py
+"""
+Core helpers shared by all ita modules.
+run_iterm(), resolve_session(), strip(), sticky context.
+"""
+import asyncio
+import json
+import sys
+from pathlib import Path
+from typing import Any
+
+import click
+import iterm2
+
+# ── Sticky context ─────────────────────────────────────────────────────────
+
+CONTEXT_FILE = Path.home() / ".ita_context"
+
+def get_sticky() -> str | None:
+    """Return the sticky session ID, or None."""
+    if CONTEXT_FILE.exists():
+        v = CONTEXT_FILE.read_text().strip()
+        return v if v else None
+    return None
+
+def set_sticky(session_id: str) -> None:
+    """Persist session_id as sticky target."""
+    CONTEXT_FILE.write_text(session_id)
+
+def clear_sticky() -> None:
+    """Remove sticky target."""
+    CONTEXT_FILE.unlink(missing_ok=True)
+
+# ── Output helpers ─────────────────────────────────────────────────────────
+
+def strip(text: str) -> str:
+    """Remove null bytes from terminal output."""
+    return text.replace('\x00', '')
+
+def emit(data: Any, use_json: bool = False) -> None:
+    """Print data as plain text or JSON."""
+    if use_json:
+        click.echo(json.dumps(data, indent=2))
+    else:
+        if isinstance(data, list):
+            for item in data:
+                click.echo(item)
+        else:
+            click.echo(data)
+
+# ── iTerm2 runner ──────────────────────────────────────────────────────────
+
+def run_iterm(coro) -> Any:
+    """
+    Run an iTerm2 async coroutine synchronously.
+    Usage:
+        result = run_iterm(lambda conn: some_async_fn(conn))
+    """
+    result: dict = {}
+    error: dict = {}
+
+    async def _main(connection):
+        try:
+            result['value'] = await coro(connection)
+        except Exception as exc:
+            error['exc'] = exc
+
+    iterm2.run_until_complete(_main)
+
+    if error:
+        exc = error['exc']
+        if isinstance(exc, click.ClickException):
+            raise exc
+        raise click.ClickException(str(exc))
+
+    return result.get('value')
+
+# ── Session resolver ────────────────────────────────────────────────────────
+
+async def resolve_session(connection, session_id: str | None = None):
+    """
+    Resolve target session.
+    Precedence: explicit session_id > sticky > currently focused.
+    Raises ClickException if nothing found.
+    """
+    app = await iterm2.async_get_app(connection)
+    sid = session_id or get_sticky()
+    if sid:
+        session = app.get_session_by_id(sid)
+        if session:
+            return session
+        raise click.ClickException(
+            f"Session {sid!r} not found. Run 'ita status' to list sessions."
+        )
+    # Fall back to currently focused session
+    window = app.current_terminal_window
+    if window and window.current_tab and window.current_tab.current_session:
+        return window.current_tab.current_session
+    raise click.ClickException(
+        "No session available. Run 'ita new' to create one."
+    )
+
+# ── CLI root ────────────────────────────────────────────────────────────────
+
+@click.group()
+@click.version_option(version='1.0.0')
+def cli():
+    """ita — agent-first iTerm2 control."""
+    pass
