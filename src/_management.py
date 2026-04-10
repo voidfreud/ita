@@ -63,7 +63,7 @@ def profile():
 def profile_list():
     """List all profiles."""
     async def _run(connection):
-        profiles = await iterm2.Profile.async_get_list(connection)
+        profiles = await iterm2.PartialProfile.async_query(connection)
         return [(p.name, p.guid) for p in profiles]
     for name, guid in run_iterm(_run):
         click.echo(f"{guid}  {name}")
@@ -79,7 +79,7 @@ def profile_show(name, session_id):
             session = await resolve_session(connection, session_id)
             p = await session.async_get_profile()
         else:
-            profiles = await iterm2.Profile.async_get_list(connection)
+            profiles = await iterm2.PartialProfile.async_query(connection)
             p = next((x for x in profiles if x.name == name), None)
             if not p:
                 raise click.ClickException(f"Profile {name!r} not found")
@@ -94,7 +94,7 @@ def profile_apply(name, session_id):
     """Apply named profile to session."""
     async def _run(connection):
         session = await resolve_session(connection, session_id)
-        profiles = await iterm2.Profile.async_get_list(connection)
+        profiles = await iterm2.PartialProfile.async_query(connection)
         p = next((x for x in profiles if x.name == name), None)
         if not p:
             raise click.ClickException(f"Profile {name!r} not found")

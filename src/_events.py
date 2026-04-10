@@ -4,9 +4,7 @@ import asyncio
 import re
 import click
 import iterm2
-from _core import cli, run_iterm, resolve_session, get_sticky
-
-PROMPT_CHARS = ('❯', '$', '#', '%', '→', '>>')
+from _core import cli, run_iterm, resolve_session, get_sticky, strip, PROMPT_CHARS, last_non_empty_index
 
 
 @cli.group()
@@ -48,7 +46,10 @@ def on_prompt(timeout, session_id):
             for _ in range(timeout * 4):
                 try:
                     contents = await asyncio.wait_for(streamer.async_get(), timeout=1.0)
-                    last = contents.line(contents.number_of_lines - 1).string.replace('\x00', '').strip()
+                    last_idx = last_non_empty_index(contents)
+                    if last_idx < 0:
+                        continue
+                    last = strip(contents.line(last_idx).string).strip()
                     if any(last.startswith(p) or last.endswith(p) for p in PROMPT_CHARS):
                         return last
                 except asyncio.TimeoutError:
@@ -163,7 +164,9 @@ def annotate(text, range_start, range_end, session_id):
     async def _run(connection):
         session = await resolve_session(connection, session_id)
         contents = await session.async_get_screen_contents()
-        n = contents.number_of_lines - 1
+        n = last_non_empty_index(contents)
+        if n < 0:
+            n = contents.number_of_lines - 1
         start = range_start if range_start is not None else 0
         end = range_end if range_end is not None else 80
         coord_range = iterm2.util.CoordRange(

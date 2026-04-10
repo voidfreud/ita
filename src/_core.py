@@ -34,9 +34,20 @@ def clear_sticky() -> None:
 
 # ── Output helpers ─────────────────────────────────────────────────────────
 
+PROMPT_CHARS = ('❯', '$', '#', '%', '→', '>>')
+
 def strip(text: str) -> str:
     """Remove null bytes from terminal output."""
     return text.replace('\x00', '')
+
+def last_non_empty_index(contents) -> int:
+    """Last non-empty line index in a ScreenContents, or -1 if blank.
+    number_of_lines is grid height, not content height — the bottom rows are
+    usually empty whitespace, so callers must scan backward to find content."""
+    for i in range(contents.number_of_lines - 1, -1, -1):
+        if strip(contents.line(i).string).strip():
+            return i
+    return -1
 
 def emit(data: Any, use_json: bool = False) -> None:
     """Print data as plain text or JSON."""
@@ -104,7 +115,7 @@ async def resolve_session(connection, session_id: str | None = None) -> 'iterm2.
 # ── CLI root ────────────────────────────────────────────────────────────────
 
 @click.group()
-@click.version_option(version='0.1.0')
+@click.version_option(version='0.1.2')
 def cli():
     """ita — agent-first iTerm2 control."""
     pass

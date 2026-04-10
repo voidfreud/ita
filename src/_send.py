@@ -6,19 +6,7 @@ import json
 import time
 import click
 import iterm2
-from _core import cli, run_iterm, resolve_session, strip
-
-PROMPT_CHARS = ('❯', '$', '#', '%', '→', '>>')
-
-
-def _last_non_empty_index(contents):
-	"""Last non-empty line index in a ScreenContents, or -1 if the grid is blank.
-	number_of_lines is grid height, not content height — the bottom rows are
-	usually empty whitespace, so the caller must scan backward to find content."""
-	for i in range(contents.number_of_lines - 1, -1, -1):
-		if strip(contents.line(i).string).strip():
-			return i
-	return -1
+from _core import cli, run_iterm, resolve_session, strip, PROMPT_CHARS, last_non_empty_index
 
 
 @cli.command()
@@ -41,7 +29,7 @@ def run(cmd, timeout, lines, use_json, session_id):
 			for _ in range(timeout * 4):
 				try:
 					contents = await asyncio.wait_for(streamer.async_get(), timeout=1.0)
-					last_idx = _last_non_empty_index(contents)
+					last_idx = last_non_empty_index(contents)
 					if last_idx < 0:
 						continue
 					if not cmd_seen:
@@ -62,7 +50,7 @@ def run(cmd, timeout, lines, use_json, session_id):
 
 		# Read output: slice backward from the last non-empty line.
 		contents = await session.async_get_screen_contents()
-		last_idx = _last_non_empty_index(contents)
+		last_idx = last_non_empty_index(contents)
 		if last_idx < 0:
 			output = ''
 		else:

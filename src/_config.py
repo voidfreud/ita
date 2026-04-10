@@ -43,6 +43,10 @@ def var_get(name, scope, session_id):
 @click.option('--scope', type=click.Choice(['session', 'tab', 'window', 'app']), default='session')
 @click.option('-s', '--session', 'session_id', default=None)
 def var_set(name, value, scope, session_id):
+    """Set a variable. iTerm2 requires custom variables to use the 'user.' prefix;
+    it is added automatically if not present."""
+    if not name.startswith('user.'):
+        name = f'user.{name}'
     async def _run(connection):
         app = await iterm2.async_get_app(connection)
         if scope == 'app':
@@ -109,12 +113,24 @@ def pref():
     pass
 
 
+def _resolve_pref_key(key: str):
+    """Resolve a string to PreferenceKey enum, or raise ClickException with a useful hint."""
+    try:
+        return iterm2.PreferenceKey[key]
+    except KeyError:
+        raise click.ClickException(
+            f"Unknown preference key: {key!r}. Use 'ita pref list' to see valid keys."
+        )
+
+
 @pref.command('get')
 @click.argument('key')
 def pref_get(key):
     async def _run(connection):
-        return await iterm2.async_get_preference(connection, key)
-    click.echo(run_iterm(_run))
+        return await iterm2.async_get_preference(connection, _resolve_pref_key(key))
+    result = run_iterm(_run)
+    if result is not None:
+        click.echo(result)
 
 
 @pref.command('set')
@@ -122,11 +138,12 @@ def pref_get(key):
 @click.argument('value')
 def pref_set(key, value):
     async def _run(connection):
+        pref_key = _resolve_pref_key(key)
         for converter in [int, float, lambda x: True if x == 'true' else (False if x == 'false' else None), str]:
             try:
                 typed = converter(value)
                 if typed is not None:
-                    await iterm2.async_set_preference(connection, key, typed)
+                    await iterm2.async_set_preference(connection, pref_key, typed)
                     return
             except (ValueError, TypeError):
                 continue

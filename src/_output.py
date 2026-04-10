@@ -5,19 +5,7 @@ import json
 import subprocess
 import click
 import iterm2
-from _core import cli, run_iterm, resolve_session, strip
-
-PROMPT_CHARS = ('❯', '$', '#', '%', '→', '>>')
-
-
-def _last_non_empty_index(contents):
-    """Last non-empty line index in a ScreenContents, or -1 if blank.
-    number_of_lines is grid height, not content height — scan backward
-    to find actual content."""
-    for i in range(contents.number_of_lines - 1, -1, -1):
-        if strip(contents.line(i).string).strip():
-            return i
-    return -1
+from _core import cli, run_iterm, resolve_session, strip, PROMPT_CHARS, last_non_empty_index
 
 
 @cli.command()
@@ -29,7 +17,7 @@ def read(lines, use_json, session_id):
     async def _run(connection):
         session = await resolve_session(connection, session_id)
         contents = await session.async_get_screen_contents()
-        last_idx = _last_non_empty_index(contents)
+        last_idx = last_non_empty_index(contents)
         if last_idx < 0:
             return []
         start = max(0, last_idx + 1 - lines)
@@ -60,7 +48,7 @@ def watch(session_id):
                     if line and line not in seen:
                         seen.add(line)
                         click.echo(line)
-                last_idx = _last_non_empty_index(contents)
+                last_idx = last_non_empty_index(contents)
                 if last_idx < 0:
                     continue
                 last = strip(contents.line(last_idx).string).strip()
@@ -87,7 +75,7 @@ def wait(pattern, timeout, session_id):
                             if pattern in strip(contents.line(i).string):
                                 return True
                     else:
-                        last_idx = _last_non_empty_index(contents)
+                        last_idx = last_non_empty_index(contents)
                         if last_idx < 0:
                             continue
                         last = strip(contents.line(last_idx).string).strip()
@@ -108,7 +96,10 @@ def selection(session_id):
     """Get currently selected text."""
     async def _run(connection):
         session = await resolve_session(connection, session_id)
-        text = await session.async_get_selection_text(connection)
+        sel = await session.async_get_selection()
+        if not sel:
+            return ''
+        text = await session.async_get_selection_text(sel)
         return strip(text or '')
     click.echo(run_iterm(_run))
 
@@ -119,7 +110,10 @@ def copy(session_id):
     """Copy selected text to macOS clipboard."""
     async def _run(connection):
         session = await resolve_session(connection, session_id)
-        text = await session.async_get_selection_text(connection)
+        sel = await session.async_get_selection()
+        if not sel:
+            return ''
+        text = await session.async_get_selection_text(sel)
         return strip(text or '')
     text = run_iterm(_run)
     if text:
@@ -144,12 +138,10 @@ def get_prompt(session_id):
         return {
             'cwd': prompt.working_directory,
             'command': prompt.command,
-            'exit_code': prompt.exit_code,
         }
     result = run_iterm(_run)
     if result:
         click.echo(f"cwd:     {result['cwd']}")
         click.echo(f"command: {result['command']}")
-        click.echo(f"exit:    {result['exit_code']}")
     else:
         click.echo("No prompt info — is shell integration active?")
