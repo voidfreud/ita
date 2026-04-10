@@ -170,8 +170,8 @@ def annotate(text, range_start, range_end, session_id):
         start = range_start if range_start is not None else 0
         end = range_end if range_end is not None else 80
         coord_range = iterm2.util.CoordRange(
-            iterm2.util.Coord(start, n),
-            iterm2.util.Coord(end, n))
+            iterm2.util.Point(start, n),
+            iterm2.util.Point(end, n))
         await session.async_add_annotation(coord_range, text)
     run_iterm(_run)
 

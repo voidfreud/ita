@@ -20,34 +20,34 @@ from _core import cli, run_iterm, resolve_session, strip, PROMPT_CHARS, last_non
 @click.option('-s', '--session', 'session_id', default=None)
 def run(cmd, timeout, lines, use_json, session_id):
 	"""Send command, wait for completion, return scoped output and exit code.
-	Command runs in a subshell so side effects like `exit`, `cd`, and env
-	mutations stay isolated. For state-persistent commands use `ita send`."""
+	The command runs in a subshell so `exit`, `cd`, and env mutations stay
+	isolated — use `ita send` for state-persistent commands. Exit-code capture
+	requires iTerm2 shell integration to be active in the session."""
 	async def _run(connection):
 		session = await resolve_session(connection, session_id)
 		start = time.time()
 
-		# Unique tag used as (a) OSC identity shared secret and (b) a searchable
-		# token in the shell's command-echo line for output slicing.
+		# Tag rides in on the `:` null-command, which takes and discards its
+		# arguments — POSIX-universal, no shell options required. zsh's
+		# INTERACTIVE_COMMENTS option is off by default, so `#` would break
+		# parsing. Spaces inside `( ... )` prevent zsh/bash arithmetic parsing
+		# when user's cmd starts with `(`.
 		tag = uuid.uuid4().hex[:12]
-		identity = f"ita-{tag}"
-		# OSC 1337 custom control sequence: iTerm2 intercepts and consumes this
-		# invisibly — it never reaches the terminal screen. Payload carries the
-		# subshell's exit code. Wrapping user's cmd in (...) isolates destructive
-		# side effects like `exit` from the parent shell.
-		# Note the spaces inside `( ... )`: without them, a user command that itself
-		# starts with `(` would form `((...))`, which zsh/bash parse as an arithmetic
-		# expansion instead of a nested subshell.
-		wrapped = f"( {cmd} ); _ita_rc=$?; printf '\\033]1337;Custom=id={identity}:%d\\033\\\\' $_ita_rc"
+		wrapped = f": ita-{tag}; ( {cmd} )"
 
+		# Shell integration delivers COMMAND_END with the exit code. If the session
+		# has no shell integration loaded, this times out and exit_code stays None.
 		exit_code = None
-		async with iterm2.CustomControlSequenceMonitor(
-				connection, identity, r'^(\d+)$', session.session_id) as mon:
+		async with iterm2.PromptMonitor(
+				connection, session.session_id,
+				modes=[iterm2.PromptMonitor.Mode.COMMAND_END]) as mon:
 			await session.async_send_text(wrapped + '\n')
 			try:
-				match = await asyncio.wait_for(mon.async_get(), timeout=timeout)
-				exit_code = int(match.group(1))
+				mode, payload = await asyncio.wait_for(mon.async_get(), timeout=timeout)
+				if mode == iterm2.PromptMonitor.Mode.COMMAND_END and isinstance(payload, int):
+					exit_code = payload
 			except asyncio.TimeoutError:
-				pass  # fall through with exit_code=None
+				pass  # no shell integration, or command genuinely timed out
 
 		elapsed_ms = int((time.time() - start) * 1000)
 

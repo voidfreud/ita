@@ -140,8 +140,9 @@ def theme(preset, session_id):
         if not preset_obj:
             raise click.ClickException(
                 f"Preset {preset_name!r} not found. Run 'ita presets' to list.")
-        change = iterm2.LocalWriteOnlyProfile()
-        change.set_color_preset(preset_obj)
-        await session.async_set_profile_properties(change)
+        # WriteOnlyProfile is session-scoped and has the real async_set_color_preset.
+        # LocalWriteOnlyProfile does not carry the preset setter.
+        wop = iterm2.WriteOnlyProfile(session.session_id, connection)
+        await wop.async_set_color_preset(preset_obj)
 
     run_iterm(_run)

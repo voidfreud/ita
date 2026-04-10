@@ -172,19 +172,21 @@ def pref_theme():
 
 
 @pref.command('tmux')
-@click.argument('property', required=False)
+@click.argument('key', required=False)
 @click.argument('value', required=False)
-def pref_tmux(property, value):
-    """Get all tmux prefs, or set a specific one."""
+def pref_tmux(key, value):
+    """Get all tmux prefs, or set a specific one.
+    Key is a PreferenceKey enum name (e.g. OPEN_TMUX_WINDOWS_IN)."""
     async def _run(connection):
-        if property and value:
+        if key and value:
+            pref_key = _resolve_pref_key(key)
             typed = int(value) if value.isdigit() else (
                 True if value == 'true' else (False if value == 'false' else value))
-            await iterm2.async_set_preference(connection, f'TmuxPref{property}', typed)
+            await iterm2.async_set_preference(connection, pref_key, typed)
         else:
-            keys = ['OpenTmuxWindowsIn', 'TmuxDashboardLimit',
-                    'AutoHideTmuxClientSession', 'UseTmuxProfile']
-            return {k: await iterm2.async_get_preference(connection, k) for k in keys}
+            keys = ['OPEN_TMUX_WINDOWS_IN', 'TMUX_DASHBOARD_LIMIT',
+                    'AUTO_HIDE_TMUX_CLIENT_SESSION', 'USE_TMUX_PROFILE']
+            return {k: await iterm2.async_get_preference(connection, _resolve_pref_key(k)) for k in keys}
     result = run_iterm(_run)
     if isinstance(result, dict):
         click.echo(json.dumps(result, indent=2))
