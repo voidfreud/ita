@@ -71,39 +71,73 @@ def menu():
     pass
 
 
+_MENU_GROUPS = ('iTerm2', 'Shell', 'Edit', 'View', 'Session', 'Scripts',
+                'Profiles', 'Toolbelt', 'Window', 'Help')
+
+
+def _menu_index():
+    """Build a dict of lookup keys → identifier string for every menu item iTerm2
+    exposes. Keys include the raw identifier (e.g. 'Close'), the user-visible title
+    (e.g. 'Close'), and group-qualified forms (e.g. 'Shell/Close', 'Shell.CLOSE')."""
+    result = {}
+    for group_name in _MENU_GROUPS:
+        group = getattr(iterm2.MainMenu, group_name, None)
+        if group is None:
+            continue
+        for member in group:
+            mi = member.value  # MenuItemIdentifier: .title (user-visible) and .identifier (internal)
+            ident = mi.identifier
+            result[ident] = ident
+            result[mi.title] = ident
+            result[f"{group_name}/{mi.title}"] = ident
+            result[f"{group_name}.{member.name}"] = ident
+    return result
+
+
+def _resolve_menu(key: str) -> str:
+    """Resolve a user-supplied menu key to its internal identifier, or fall through
+    unchanged (letting iTerm2 reject unknown identifiers with its own error)."""
+    idx = _menu_index()
+    return idx.get(key, key)
+
+
 @menu.command('list')
-def menu_list():
-    """List common menu item paths."""
-    items = [
-        "Shell/New Tab",
-        "Shell/New Window",
-        "Shell/Close",
-        "Shell/Split Vertically with Current Profile",
-        "Shell/Split Horizontally with Current Profile",
-        "View/Enter Full Screen",
-        "View/Exit Full Screen",
-        "iTerm2/Preferences",
-    ]
-    for item in items:
-        click.echo(item)
+@click.option('--group', default=None, help='Filter by menu group (Shell, Edit, View, ...)')
+def menu_list(group):
+    """List every menu item iTerm2 exposes as (group/title → identifier)."""
+    for group_name in _MENU_GROUPS:
+        if group and group.lower() != group_name.lower():
+            continue
+        grp = getattr(iterm2.MainMenu, group_name, None)
+        if grp is None:
+            continue
+        for member in grp:
+            mi = member.value
+            click.echo(f"{group_name}/{mi.title}\t{mi.identifier}")
 
 
 @menu.command('select')
-@click.argument('item_path')
-def menu_select(item_path):
-    """Invoke menu item by path (e.g. 'Shell/New Tab')."""
+@click.argument('item')
+def menu_select(item):
+    """Invoke a menu item. Accepts 'Shell/Close', 'Shell.CLOSE', or the raw
+    identifier 'Close'. Use 'ita menu list' to see every valid input."""
+    identifier = _resolve_menu(item)
     async def _run(connection):
-        await iterm2.MainMenu.async_select_menu_item(connection, item_path)
+        await iterm2.MainMenu.async_select_menu_item(connection, identifier)
     run_iterm(_run)
 
 
 @menu.command('state')
-@click.argument('item_path')
-def menu_state(item_path):
-    """Check if menu item is checked/enabled."""
+@click.argument('item')
+def menu_state(item):
+    """Check if a menu item is checked/enabled. Accepts 'Shell/Close',
+    'Shell.CLOSE', or the raw identifier 'Close'."""
+    identifier = _resolve_menu(item)
     async def _run(connection):
-        return await iterm2.MainMenu.async_get_menu_item_state(connection, item_path)
-    click.echo(run_iterm(_run))
+        return await iterm2.MainMenu.async_get_menu_item_state(connection, identifier)
+    state = run_iterm(_run)
+    click.echo(f"checked: {state.checked}")
+    click.echo(f"enabled: {state.enabled}")
 
 
 @cli.command()
