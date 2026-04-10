@@ -2,6 +2,8 @@
 
 Agent-first iTerm2 control for Claude Code. Built directly on the iTerm2 Python API.
 
+**Authors:** Void Freud ([@voidfreud](https://github.com/voidfreud)) + Claude (Anthropic), co-designed and co-implemented.
+
 ## What it does
 
 `ita` gives Claude complete, clean control over iTerm2 — creating sessions, running commands atomically with wait-for-completion, streaming output via ScreenStreamer, managing layouts, arrangements, profiles, tmux -CC workflows, and reacting to events. All with minimal context pollution.
