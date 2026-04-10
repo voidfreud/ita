@@ -19,6 +19,8 @@ def var():
 @click.option('--scope', type=click.Choice(['session', 'tab', 'window', 'app']), default='session')
 @click.option('-s', '--session', 'session_id', default=None)
 def var_get(name, scope, session_id):
+    if not name.startswith('user.'):
+        name = f'user.{name}'
     async def _run(connection):
         app = await iterm2.async_get_app(connection)
         if scope == 'app':
@@ -45,6 +47,8 @@ def var_get(name, scope, session_id):
 def var_set(name, value, scope, session_id):
     """Set a variable. iTerm2 requires custom variables to use the 'user.' prefix;
     it is added automatically if not present."""
+    if not name.strip():
+        raise click.ClickException("Variable name is required")
     if not name.startswith('user.'):
         name = f'user.{name}'
     async def _run(connection):
@@ -118,8 +122,10 @@ def _resolve_pref_key(key: str):
     try:
         return iterm2.PreferenceKey[key]
     except KeyError:
+        valid = sorted(k for k in dir(iterm2.PreferenceKey) if not k.startswith('_'))[:10]
         raise click.ClickException(
-            f"Unknown preference key: {key!r}. Use 'ita pref list' to see valid keys."
+            f"Unknown preference key: {key!r}. "
+            f"Run 'ita pref list' to see all valid keys. Examples: {', '.join(valid)}."
         )
 
 
@@ -229,13 +235,23 @@ def broadcast_off():
 @click.argument('session_ids', nargs=-1, required=True)
 def broadcast_add(session_ids):
     """Group sessions into a broadcast domain."""
+    # Deduplicate while preserving order
+    seen = set()
+    unique_ids = []
+    for sid in session_ids:
+        if sid in seen:
+            raise click.ClickException(f"Duplicate session ID: {sid}")
+        seen.add(sid)
+        unique_ids.append(sid)
     async def _run(connection):
         app = await iterm2.async_get_app(connection)
         domain = iterm2.BroadcastDomain()
-        for sid in session_ids:
+        for sid in unique_ids:
             s = app.get_session_by_id(sid)
-            if s:
-                domain.add_session(s)
+            if not s:
+                raise click.ClickException(
+                    f"Session {sid!r} not found. Run 'ita status' to list sessions.")
+            domain.add_session(s)
         await iterm2.async_set_broadcast_domains(connection, [domain])
     run_iterm(_run)
 
