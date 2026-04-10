@@ -18,7 +18,7 @@ from _core import cli  # noqa: E402 — must come after sys.path modification
 # Import all modules — each registers its commands on `cli` at import time
 import _orientation  # noqa: E402, F401 — status, focus, version, use
 import _session      # noqa: E402, F401 — new, close, activate, name, restart, resize, clear, capture
-import _io           # noqa: E402, F401 — run, send, inject
+import _send         # noqa: E402, F401 — run, send, inject (not _io: collides with built-in)
 import _output       # noqa: E402, F401 — read, watch, wait, selection, copy, get-prompt
 import _layout       # noqa: E402, F401 — split, pane, move, tab group, window group
 import _management   # noqa: E402, F401 — save, restore, layouts, profile group, presets, theme

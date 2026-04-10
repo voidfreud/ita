@@ -1,5 +1,6 @@
-# src/_io.py
-"""Input commands: run (atomic), send, inject."""
+# src/_send.py
+"""Input commands: run (atomic), send, inject.
+File is named _send.py rather than _io.py to avoid collision with Python's built-in _io module."""
 import asyncio
 import json
 import time
