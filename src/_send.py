@@ -19,67 +19,71 @@ from _core import cli, run_iterm, resolve_session, strip, PROMPT_CHARS, last_non
 @click.option('--json', 'use_json', is_flag=True)
 @click.option('-s', '--session', 'session_id', default=None)
 def run(cmd, timeout, lines, use_json, session_id):
-	"""Send command, wait for completion, return clean output and exit code. Atomic."""
+	"""Send command, wait for completion, return scoped output and exit code.
+	Command runs in a subshell so side effects like `exit`, `cd`, and env
+	mutations stay isolated. For state-persistent commands use `ita send`."""
 	async def _run(connection):
 		session = await resolve_session(connection, session_id)
 		start = time.time()
 
-		# Sentinel: unique marker printed after the command runs. Double duty —
-		# (a) the exit-code carrier, (b) the anchor for slicing output cleanly.
-		marker = f"__ITA_EXIT_{uuid.uuid4().hex[:12]}__"
-		wrapped = f"{cmd}; _ita_rc=$?; printf '{marker}%d{marker}\\n' $_ita_rc"
-		sentinel_re = re.compile(re.escape(marker) + r'(\d+)' + re.escape(marker))
-		echo_template = f"{marker}%d{marker}"  # appears only in the command-echo line
+		# Unique tag used as (a) OSC identity shared secret and (b) a searchable
+		# token in the shell's command-echo line for output slicing.
+		tag = uuid.uuid4().hex[:12]
+		identity = f"ita-{tag}"
+		# OSC 1337 custom control sequence: iTerm2 intercepts and consumes this
+		# invisibly — it never reaches the terminal screen. Payload carries the
+		# subshell's exit code. Wrapping user's cmd in (...) isolates destructive
+		# side effects like `exit` from the parent shell.
+		# Note the spaces inside `( ... )`: without them, a user command that itself
+		# starts with `(` would form `((...))`, which zsh/bash parse as an arithmetic
+		# expansion instead of a nested subshell.
+		wrapped = f"( {cmd} ); _ita_rc=$?; printf '\\033]1337;Custom=id={identity}:%d\\033\\\\' $_ita_rc"
 
-		async with session.get_screen_streamer() as streamer:
+		exit_code = None
+		async with iterm2.CustomControlSequenceMonitor(
+				connection, identity, r'^(\d+)$', session.session_id) as mon:
 			await session.async_send_text(wrapped + '\n')
-			# Wait until the sentinel line appears (command finished).
-			for _ in range(timeout * 4):
-				try:
-					contents = await asyncio.wait_for(streamer.async_get(), timeout=1.0)
-					found = False
-					for i in range(contents.number_of_lines):
-						if sentinel_re.search(strip(contents.line(i).string)):
-							found = True
-							break
-					if found:
-						break
-				except asyncio.TimeoutError:
-					continue
+			try:
+				match = await asyncio.wait_for(mon.async_get(), timeout=timeout)
+				exit_code = int(match.group(1))
+			except asyncio.TimeoutError:
+				pass  # fall through with exit_code=None
 
 		elapsed_ms = int((time.time() - start) * 1000)
 
-		# Read final screen and slice between the command-echo row and the sentinel row.
+		# Find the command-echo row by searching for our unique tag. The tag
+		# appears in the shell's echo of the wrapped command and nowhere else
+		# (the OSC was consumed by iTerm2, so the only place the tag survives
+		# visibly is the shell's echo of what the user "typed").
 		contents = await session.async_get_screen_contents()
-		sentinel_row = None
-		exit_code = None
+		echo_row = None
 		for i in range(contents.number_of_lines):
-			m = sentinel_re.search(strip(contents.line(i).string))
-			if m:
-				sentinel_row = i
-				exit_code = int(m.group(1))
+			if tag in strip(contents.line(i).string):
+				echo_row = i
 				break
 
-		if sentinel_row is not None:
-			# Scan backward for the command-echo row (contains literal %d template).
-			cmd_echo_row = None
-			for i in range(sentinel_row - 1, -1, -1):
-				if echo_template in strip(contents.line(i).string):
-					cmd_echo_row = i
-					break
-			if cmd_echo_row is not None:
-				start_row = max(cmd_echo_row + 1, sentinel_row - lines)
-				output_lines = [strip(contents.line(i).string) for i in range(start_row, sentinel_row)]
-			else:
-				# Fallback: last N lines up to the sentinel, exclusive.
-				start_row = max(0, sentinel_row - lines)
-				output_lines = [strip(contents.line(i).string) for i in range(start_row, sentinel_row)]
+		last_idx = last_non_empty_index(contents)
+		if echo_row is not None:
+			# Slice strictly after the echo row. If the cmd had no output and the
+			# new prompt hasn't re-rendered yet (echo_row == last_idx), this is
+			# an empty range — exactly what we want.
+			start_row = echo_row + 1
+			end_row = max(start_row, last_idx + 1) if last_idx >= 0 else start_row
+			# Cap to the `lines` most recent rows.
+			if end_row - start_row > lines:
+				start_row = end_row - lines
+			output_lines = [strip(contents.line(i).string) for i in range(start_row, end_row)]
+			# Drop trailing prompt row if present.
+			if output_lines:
+				tail = output_lines[-1].strip()
+				if tail and any(tail.startswith(p) or tail.endswith(p) for p in PROMPT_CHARS):
+					output_lines.pop()
 			while output_lines and not output_lines[-1].strip():
 				output_lines.pop()
 			output = '\n'.join(output_lines)
 		else:
-			# Sentinel never appeared — timeout path. Fall back to old "last N lines" behavior.
-			last_idx = last_non_empty_index(contents)
+			# Echo row not found (screen scrolled past it, or shell didn't echo).
+			# Fallback: last N non-empty lines, old-style.
 			if last_idx < 0:
 				output = ''
 			else:

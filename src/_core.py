@@ -115,7 +115,7 @@ async def resolve_session(connection, session_id: str | None = None) -> 'iterm2.
 # ── CLI root ────────────────────────────────────────────────────────────────
 
 @click.group()
-@click.version_option(version='0.2.0')
+@click.version_option(version='0.3.0')
 def cli():
     """ita — agent-first iTerm2 control."""
     pass
