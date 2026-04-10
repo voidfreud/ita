@@ -7,6 +7,7 @@ import asyncio
 import json
 import sys
 from pathlib import Path
+from collections.abc import Awaitable, Callable
 from typing import Any
 
 import click
@@ -50,7 +51,7 @@ def emit(data: Any, use_json: bool = False) -> None:
 
 # ── iTerm2 runner ──────────────────────────────────────────────────────────
 
-def run_iterm(coro) -> Any:
+def run_iterm(coro: Callable[..., Awaitable[Any]]) -> Any:
     """
     Run an iTerm2 async coroutine synchronously.
     Usage:
@@ -77,7 +78,7 @@ def run_iterm(coro) -> Any:
 
 # ── Session resolver ────────────────────────────────────────────────────────
 
-async def resolve_session(connection, session_id: str | None = None):
+async def resolve_session(connection, session_id: str | None = None) -> 'iterm2.Session':
     """
     Resolve target session.
     Precedence: explicit session_id > sticky > currently focused.
