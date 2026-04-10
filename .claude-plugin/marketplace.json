@@ -1,0 +1,23 @@
+{
+	"name": "ita",
+	"metadata": {
+		"description": "Agent-first iTerm2 control for Claude Code"
+	},
+	"owner": {
+		"name": "Void Freud",
+		"url": "https://github.com/voidfreud"
+	},
+	"plugins": [
+		{
+			"name": "ita",
+			"description": "Agent-first iTerm2 control — full API access optimized for Claude. Atomic run with wait-for-completion, ScreenStreamer output, tabs/windows/splits/arrangements, event monitoring, tmux -CC workflows, dialogs, profiles, and more.",
+			"version": "0.1.0",
+			"source": "./",
+			"skills": ["./skills/ita"],
+			"author": {
+				"name": "Void Freud",
+				"url": "https://github.com/voidfreud"
+			}
+		}
+	]
+}
