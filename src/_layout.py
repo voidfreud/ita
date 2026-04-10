@@ -37,16 +37,17 @@ def pane(direction, session_id):
 	"""Navigate to adjacent split pane. Updates sticky target."""
 	async def _run(connection):
 		session = await resolve_session(connection, session_id)
+		original_id = session.session_id
 		app = await iterm2.async_get_app(connection)
 		_, tab = app.get_window_and_tab_for_session(session)
 		await tab.async_select_pane_in_direction(DIRECTION_MAP[direction])
 		new_session = tab.current_session
-		if new_session:
-			set_sticky(new_session.session_id)
-			return new_session.session_id
+		if not new_session or new_session.session_id == original_id:
+			raise click.ClickException(f"No pane to the {direction} of current session")
+		set_sticky(new_session.session_id)
+		return new_session.session_id
 	sid = run_iterm(_run)
-	if sid:
-		click.echo(sid)
+	click.echo(sid)
 
 
 @cli.command()
@@ -197,14 +198,24 @@ def tab_move():
 
 
 @tab.command('title')
-@click.argument('title')
+@click.argument('title', required=False)
 def tab_title(title):
+	"""Get current tab title, or set it if TITLE provided."""
 	async def _run(connection):
 		app = await iterm2.async_get_app(connection)
 		w = app.current_terminal_window
-		if w and w.current_tab:
-			await w.current_tab.async_set_title(title)
-	run_iterm(_run)
+		if not (w and w.current_tab):
+			raise click.ClickException("No active tab")
+		t = w.current_tab
+		if title is None:
+			# Read the tab title via the variable
+			val = await t.async_get_variable('titleOverride') or await t.async_get_variable('title')
+			return val or ''
+		await t.async_set_title(title)
+		return None
+	result = run_iterm(_run)
+	if result is not None:
+		click.echo(result)
 
 
 # ── Windows ────────────────────────────────────────────────────────────────
@@ -226,12 +237,21 @@ def window_new(profile):
 
 @window.command('close')
 @click.argument('window_id', required=False)
-def window_close(window_id):
+@click.option('--force', is_flag=True, help='Close current window without requiring WINDOW_ID')
+def window_close(window_id, force):
+	"""Close a window. WINDOW_ID is required unless --force is passed."""
+	if not window_id and not force:
+		raise click.ClickException(
+			"WINDOW_ID required (or pass --force to close the current window)")
 	async def _run(connection):
 		app = await iterm2.async_get_app(connection)
 		w = app.get_window_by_id(window_id) if window_id else app.current_terminal_window
-		if w:
-			await w.async_close(force=True)
+		if not w:
+			raise click.ClickException(
+				f"Window {window_id!r} not found" if window_id else "No current window")
+		session_count = sum(len(t.sessions) for t in w.tabs)
+		click.echo(f"Closing window with {len(w.tabs)} tab(s), {session_count} session(s).", err=True)
+		await w.async_close(force=True)
 	run_iterm(_run)
 
 
@@ -247,18 +267,26 @@ def window_activate(window_id):
 
 
 @window.command('title')
-@click.argument('title')
+@click.argument('title', required=False)
 def window_title(title):
+	"""Get current window title, or set it if TITLE provided."""
 	async def _run(connection):
 		app = await iterm2.async_get_app(connection)
 		w = app.current_terminal_window
-		if w:
-			await w.async_set_title(title)
-	run_iterm(_run)
+		if not w:
+			raise click.ClickException("No active window")
+		if title is None:
+			val = await w.async_get_variable('titleOverride') or await w.async_get_variable('title')
+			return val or ''
+		await w.async_set_title(title)
+		return None
+	result = run_iterm(_run)
+	if result is not None:
+		click.echo(result)
 
 
 @window.command('fullscreen')
-@click.argument('mode', type=click.Choice(['on', 'off', 'toggle']))
+@click.argument('mode', type=click.Choice(['on', 'off', 'toggle']), default='toggle', required=False)
 def window_fullscreen(mode):
 	async def _run(connection):
 		app = await iterm2.async_get_app(connection)
