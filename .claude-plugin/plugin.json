@@ -1,0 +1,12 @@
+{
+  "name": "ita",
+  "version": "1.0.0",
+  "description": "Agent-first iTerm2 control — full API access optimized for Claude. Atomic run with wait-for-completion, ScreenStreamer output, tabs/windows/splits/arrangements, event monitoring, tmux -CC workflows, dialogs, profiles, and more.",
+  "author": {
+    "name": "Alex Bass",
+    "url": "https://github.com/voidfreud"
+  },
+  "repository": "https://github.com/voidfreud/ita",
+  "license": "MIT",
+  "keywords": ["iterm2", "terminal", "claude-code", "agent", "automation"]
+}

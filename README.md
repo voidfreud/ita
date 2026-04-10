@@ -15,11 +15,22 @@ The core innovation is `ita run "cmd"` — a single call that sends the command,
 - [`uv`](https://github.com/astral-sh/uv) installed
 - Shell integration (optional, for `ita get-prompt`): `curl -L https://iterm2.com/shell_integration/install_shell_integration.sh | bash`
 
-## Install as Claude Code plugin
+## Install
+
+### As a Claude Code plugin
+
+Install via Claude Code's plugin system (`/plugin` command). The plugin provides the `ita` skill which documents every command for Claude to use.
+
+### Add `ita` to your PATH
+
+The plugin ships the `ita` CLI at `src/ita.py`. To make it available globally:
 
 ```bash
-# Add this repo as a plugin in Claude Code
+cd /path/to/ita  # wherever the plugin installed it, or the cloned repo
+./install.sh     # symlinks src/ita.py → ~/.local/bin/ita
 ```
+
+Then verify: `ita --help`
 
 ## Development
 
