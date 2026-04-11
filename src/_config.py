@@ -106,7 +106,11 @@ def app_theme():
     async def _run(connection):
         app = await iterm2.async_get_app(connection)
         return await app.async_get_theme()
-    click.echo(run_iterm(_run))
+    result = run_iterm(_run)
+    if isinstance(result, (list, tuple)):
+        click.echo(' '.join(str(x) for x in result))
+    else:
+        click.echo(result or '')
 
 
 # ── Preferences ───────────────────────────────────────────────────────────
@@ -174,7 +178,11 @@ def pref_theme():
     async def _run(connection):
         app = await iterm2.async_get_app(connection)
         return await app.async_get_theme()
-    click.echo(run_iterm(_run))
+    result = run_iterm(_run)
+    if isinstance(result, (list, tuple)):
+        click.echo(' '.join(str(x) for x in result))
+    else:
+        click.echo(result or '')
 
 
 @pref.command('tmux')
