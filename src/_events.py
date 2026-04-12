@@ -141,7 +141,8 @@ def on_keystroke(pattern, timeout, session_id):
 @on.command('session-new')
 @click.option('-t', '--timeout', default=30, type=int)
 def on_session_new(timeout):
-    """Block until a new session is created. Returns session ID."""
+    """Block until a new session is created (any session). Emits `UUID\\tNAME`
+    when the session name is resolvable, otherwise just `UUID` (#131)."""
     async def _run(connection):
         try:
             async with iterm2.NewSessionMonitor(connection) as mon:
@@ -152,17 +153,40 @@ def on_session_new(timeout):
         if not uuid:
             raise click.ClickException(
                 f"Could not extract UUID from new-session payload: {raw!r}")
-        return uuid
+        # Best-effort name resolution — session may not be fully registered yet.
+        name = ''
+        try:
+            app = await iterm2.async_get_app(connection)
+            s = app.get_session_by_id(uuid)
+            if s is not None:
+                name = strip(s.name or '')
+        except Exception:
+            pass
+        return f"{uuid}\t{name}" if name else uuid
     click.echo(run_iterm(_run))
 
 
 @on.command('session-end')
 @click.option('-t', '--timeout', default=60, type=int)
-@click.option('-s', '--session', 'session_id', default=None)
+@click.option('-s', '--session', 'session_id', default=None,
+              help='Filter to a specific session (default: any session ending).')
 def on_session_end(timeout, session_id):
-    """Block until a session terminates. Returns session ID."""
+    """Block until a session terminates. Without -s, fires on ANY session
+    ending (#131). Emits `UUID\\tNAME` when the name was known before
+    termination, otherwise just `UUID`."""
     async def _run(connection):
         target = session_id
+        # Snapshot names BEFORE termination — the session object is usually
+        # gone by the time the terminate notification fires.
+        name_map = {}
+        try:
+            app = await iterm2.async_get_app(connection)
+            for w in app.terminal_windows:
+                for t in w.tabs:
+                    for s in t.sessions:
+                        name_map[s.session_id] = strip(s.name or '')
+        except Exception:
+            pass
         q = asyncio.Queue()
         async def cb(connection, notification):
             sid = notification.session_id
@@ -171,7 +195,9 @@ def on_session_end(timeout, session_id):
         token = await iterm2.notifications.async_subscribe_to_terminate_session_notification(
             connection, cb)
         try:
-            return await asyncio.wait_for(q.get(), timeout=timeout)
+            sid = await asyncio.wait_for(q.get(), timeout=timeout)
+            name = name_map.get(sid, '')
+            return f"{sid}\t{name}" if name else sid
         except asyncio.TimeoutError:
             raise click.ClickException(f"Timed out waiting for session termination after {timeout}s")
         finally:
