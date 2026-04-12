@@ -195,7 +195,13 @@ async def resolve_session(connection, session_id: str | None = None) -> 'iterm2.
 
 # ── CLI root ────────────────────────────────────────────────────────────────
 
+<<<<<<< HEAD
 __version__ = '0.1.1'
+||||||| parent of e4c850c (Fix tmux visible no-op and connections always empty (#105, #121))
+__version__ = '0.1.0'
+=======
+__version__ = '0.1.3'
+>>>>>>> e4c850c (Fix tmux visible no-op and connections always empty (#105, #121))
 
 @click.group()
 @click.version_option(version=__version__)
