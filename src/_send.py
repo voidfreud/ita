@@ -9,31 +9,7 @@ import uuid
 import click
 import iterm2
 from _core import (cli, run_iterm, resolve_session, strip, PROMPT_CHARS,
-	last_non_empty_index, check_protected, session_writelock)
-
-
-def _is_prompt_line(s: str) -> bool:
-	"""True if s looks like a shell prompt line with no meaningful content
-	(e.g. '~ ❯', '$', '% ', '~ ❯ :'). Catches both fully-rendered prompts and
-	echo remnants where only the prompt + command-separator punctuation survived."""
-	t = s.strip()
-	if not t:
-		return False
-	if t in PROMPT_CHARS:
-		return True
-	if any(t.startswith(p + ' ') for p in PROMPT_CHARS):
-		return True
-	if any(t.endswith(' ' + p) for p in PROMPT_CHARS):
-		return True
-	# Line contains a prompt char AND its non-prompt residue is only punctuation /
-	# whitespace (e.g. '~ ❯ :' — echo row remnant with the `: ita-tag;` truncated).
-	if any(p in t for p in PROMPT_CHARS):
-		residue = t
-		for p in PROMPT_CHARS:
-			residue = residue.replace(p, '')
-		if not residue.strip(' ~./:;'):
-			return True
-	return False
+	last_non_empty_index, check_protected, session_writelock, _is_prompt_line)
 
 
 def _trim_output_lines(lines: list[str]) -> list[str]:
@@ -305,6 +281,7 @@ def run(cmd, timeout, lines, tail_n, use_json, persist, check_integration, stdin
 			# carrying it get dropped.
 			fallback = _fallback_output(contents, lines, tag=tag)
 			output_rows = fallback.split('\n') if fallback else []
+			output_rows.insert(0, '⚠ output may be incomplete — echo row scrolled off screen')
 
 		# #126: explicit --tail N overrides the default lines cap and prepends
 		# a truncation notice when output was actually cut. Silent truncation

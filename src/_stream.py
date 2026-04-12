@@ -4,8 +4,8 @@ import asyncio
 import json
 import click
 import iterm2
-from _core import cli, run_iterm, resolve_session, strip, last_non_empty_index
-from _output import _clean_lines, _is_prompt_line
+from _core import cli, run_iterm, resolve_session, strip, last_non_empty_index, _is_prompt_line
+from _output import _clean_lines
 
 
 def _ts() -> int:
@@ -40,8 +40,7 @@ async def _stream_session(session, json_stream: bool, prefix: str = '', name: st
 			contents = await streamer.async_get()
 			snapshot = tuple(_clean_lines(contents))
 			if snapshot != prev_snapshot:
-				prev_set = set(prev_snapshot)
-				new_lines = [l for l in snapshot if l not in prev_set]
+				new_lines = list(snapshot[len(prev_snapshot):])
 				if new_lines:
 					if json_stream:
 						payload = {'session_id': session.session_id, 'lines': new_lines, 'timestamp_ms': _ts()}
@@ -104,14 +103,7 @@ def watch(session_ids, timeout, watch_all, json_stream, use_json):
 			# Each _stream_session manages its own streamer via `async with`,
 			# so cancellation of gather cleans every subscription up (#176).
 			tasks.append(_stream_session(session, json_stream, prefix, name))
-		try:
-			await asyncio.gather(*tasks)
-		except asyncio.CancelledError:
-			# Ensure all sub-tasks are cancelled & awaited on timeout/ctrl-c
-			for t in tasks:
-				if asyncio.iscoroutine(t):
-					continue
-			raise
+		await asyncio.gather(*tasks)
 
 	async def _run_single(connection, sid):
 		session = await resolve_session(connection, sid)
