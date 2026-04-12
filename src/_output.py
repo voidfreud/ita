@@ -1,12 +1,10 @@
 # src/_output.py
 """Output reading commands: read. Shared helpers exported for _stream, _query."""
 import json
-import re
 import click
 import iterm2
-from _core import cli, run_iterm, resolve_session, strip, PROMPT_CHARS, last_non_empty_index, read_session_lines
-
-_SENTINEL_RE = re.compile(r'^: ita-[0-9a-f]+;')
+from _core import (cli, run_iterm, resolve_session, strip, PROMPT_CHARS,
+	last_non_empty_index, read_session_lines, _is_prompt_line, _SENTINEL_RE)
 
 
 def _clean_lines(contents) -> list[str]:
@@ -15,11 +13,6 @@ def _clean_lines(contents) -> list[str]:
 	while result and not result[-1].strip():
 		result.pop()
 	return result
-
-
-def _is_prompt_line(line: str) -> bool:
-	s = line.strip()
-	return bool(s) and any(s.startswith(p) or s.endswith(p) for p in PROMPT_CHARS)
 
 
 async def _session_meta(session) -> dict:

@@ -7,6 +7,7 @@ import asyncio
 import fcntl
 import json
 import os
+import re
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -192,6 +193,32 @@ class session_writelock:
 # ── Output helpers ─────────────────────────────────────────────────────────
 
 PROMPT_CHARS = ('❯', '$', '#', '%', '→', '>>')
+_SENTINEL_RE = re.compile(r'^: ita-[0-9a-f]+;')
+
+
+def _is_prompt_line(s: str) -> bool:
+	"""True if s looks like a shell prompt line with no meaningful content
+	(e.g. '~ ❯', '$', '% ', '~ ❯ :'). Catches both fully-rendered prompts and
+	echo remnants where only the prompt + command-separator punctuation survived."""
+	t = s.strip()
+	if not t:
+		return False
+	if t in PROMPT_CHARS:
+		return True
+	if any(t.startswith(p + ' ') for p in PROMPT_CHARS):
+		return True
+	if any(t.endswith(' ' + p) for p in PROMPT_CHARS):
+		return True
+	# Line contains a prompt char AND its non-prompt residue is only punctuation /
+	# whitespace (e.g. '~ ❯ :' — echo row remnant with the `: ita-tag;` truncated).
+	if any(p in t for p in PROMPT_CHARS):
+		residue = t
+		for p in PROMPT_CHARS:
+			residue = residue.replace(p, '')
+		if not residue.strip(' ~./:;'):
+			return True
+	return False
+
 
 def strip(text: str) -> str:
 	"""Remove null bytes from terminal output."""
