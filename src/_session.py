@@ -60,8 +60,14 @@ _SENTINEL_RE = re.compile(r'^: ita-[0-9a-f]+;')
 @click.option('--profile', default=None, help='Profile name')
 @click.option('--name', 'session_name', default=None, help='Name for the new session')
 @click.option('--reuse', is_flag=True, help='If --name exists, return existing session instead of error')
-def new(new_window, profile, session_name, reuse):
-	"""Create new tab (or window). Returns name and session ID."""
+@click.option('--replace', is_flag=True, help='If --name exists, close the existing session and create a fresh one')
+@click.option('--cwd', default=None, help='Working directory for the new session')
+@click.option('--run', 'run_cmd', default=None, help='Command to fire immediately after creation (non-blocking)')
+@click.option('--json', 'as_json', is_flag=True, help='Return full session object as JSON')
+def new(new_window, profile, session_name, reuse, replace, cwd, run_cmd, as_json):
+	"""Create new tab (or window). Returns name (stdout) and session ID."""
+	if reuse and replace:
+		raise click.ClickException("--reuse and --replace are mutually exclusive.")
 	async def _run(connection):
 		app = await iterm2.async_get_app(connection)
 		all_sess = _all_sessions(app)
@@ -70,15 +76,29 @@ def new(new_window, profile, session_name, reuse):
 		# still participate in uniqueness / auto-naming checks (#160).
 		fresh_pairs = [(s, await _fresh_name(s)) for s in all_sess]
 		existing_names = {n for _, n in fresh_pairs if n}
-		# If --name given, check uniqueness / reuse
+		# If --name given, check uniqueness / reuse / replace
 		if session_name:
 			for s, n in fresh_pairs:
 				if n == session_name:
 					if reuse:
-						return n, s.session_id
+						tab = s.tab
+						window = tab.window if tab else None
+						return {
+							'name': n,
+							'session_id': s.session_id,
+							'tab_id': tab.tab_id if tab else None,
+							'window_id': window.window_id if window else None,
+						}
+					if replace:
+						try:
+							await s.async_close(force=True)
+						except Exception:
+							pass
+						existing_names.discard(n)
+						break
 					raise click.ClickException(
 						f"session name {session_name!r} already exists. "
-						f"Use --reuse to return the existing session.")
+						f"Use --reuse to return the existing session, or --replace to recreate it.")
 		try:
 			if new_window:
 				window = await iterm2.Window.async_create(connection, profile=profile)
@@ -113,10 +133,32 @@ def new(new_window, profile, session_name, reuse):
 		# Block briefly until the name is visible via the variable API so the
 		# very next ita invocation sees it (#160).
 		await _wait_name_visible(session, name)
-		return name, session.session_id
+		# --cwd: send `cd <dir>` as a shell command. Using async_send_text is
+		# the simplest path that works with any profile; profile-level working
+		# directory would require custom-profile mutation which is heavier.
+		if cwd:
+			quoted = cwd.replace("'", "'\\''")
+			await session.async_send_text(f"cd '{quoted}'\n")
+		# --run: fire user command after optional cd. Non-blocking: we just
+		# send text and return; the caller doesn't wait for completion.
+		if run_cmd:
+			tail = '' if run_cmd.endswith('\n') else '\n'
+			await session.async_send_text(run_cmd + tail)
+		tab = session.tab
+		window = tab.window if tab else None
+		return {
+			'name': name,
+			'session_id': session.session_id,
+			'tab_id': tab.tab_id if tab else None,
+			'window_id': window.window_id if window else None,
+		}
 
-	name, sid = run_iterm(_run)
-	click.echo(f"{name}\t{sid}")
+	info = run_iterm(_run)
+	if as_json:
+		import json as _json
+		click.echo(_json.dumps(info))
+	else:
+		click.echo(f"{info['name']}\t{info['session_id']}")
 
 
 def _reject_combo(session_id, where, all_flag):
