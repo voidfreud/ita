@@ -63,7 +63,7 @@ def var_get(name, scope, session_id, use_json):
 	if use_json:
 		click.echo(json.dumps({'name': name, 'value': result, 'scope': scope}, default=str))
 	else:
-		click.echo(str(result or ''))
+		click.echo(str(result) if result is not None else '')
 
 
 @var.command('set')

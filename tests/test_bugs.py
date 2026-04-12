@@ -80,14 +80,16 @@ def test_cf1_var_get_builtin_rows(session):
 	assert val.isdigit(), f"var get rows returned non-numeric: {val!r}"
 
 
-@pytest.mark.known_broken
-@pytest.mark.xfail(reason="CF1: var get prepends user. to built-in names (#101)", strict=False)
+@pytest.mark.regression
 def test_cf1_var_get_builtin_jobname(session):
-	"""CF1 (#101): var get jobName must return the shell process name (e.g. 'zsh')."""
+	"""CF1 fixed (#189): var get jobName must return the shell process name (e.g. 'zsh').
+	jobName is populated by iTerm2 from the TTY foreground process — no shell integration needed.
+	The prior xfail was stale: the user. prefix bug (#101) is fixed, and the var_get output
+	now uses 'str(result) if result is not None else \"\"' to avoid swallowing falsy values."""
 	r = ita('var', 'get', 'jobName', '-s', session)
 	assert r.returncode == 0, f"var get jobName failed: {r.stderr}"
 	val = r.stdout.strip()
-	assert val, "var get jobName returned empty — built-in var is inaccessible (user. prefix bug)"
+	assert val, "var get jobName returned empty — built-in var is inaccessible"
 
 
 # ── CF2: broadcast on must merge, not replace ─────────────────────────────
