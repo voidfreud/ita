@@ -67,7 +67,7 @@ async def _read_session(session, lines: int, scrollback: bool = False) -> dict:
 		 '[truncated: X lines] when output was cut. (#126)')
 @click.option('-s', '--session', 'session_id', default=None)
 def read(lines_arg, lines_opt, use_json, read_all, ids_only, scrollback,
-         grep_pattern, after_row, since_prompt, tail_n, session_id):
+		 grep_pattern, after_row, since_prompt, tail_n, session_id):
 	"""Read last N lines from session. Always clean."""
 	n = lines_opt or lines_arg or 20
 	grep_rx = None
