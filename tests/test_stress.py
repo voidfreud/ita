@@ -12,8 +12,8 @@ pytestmark = [pytest.mark.integration, pytest.mark.stress]
 
 def test_cross_session_var_isolation():
 	"""Variables set in session A must not appear in session B."""
-	s1 = ita('new').stdout.strip()
-	s2 = ita('new').stdout.strip()
+	s1 = ita('new').stdout.strip().split('\t')[-1]
+	s2 = ita('new').stdout.strip().split('\t')[-1]
 	try:
 		ita_ok('var', 'set', 'isoltest', 's1_value', '-s', s1)
 		r = ita('var', 'get', 'isoltest', '-s', s2)
@@ -53,8 +53,8 @@ def test_rapid_fire_pref_roundtrip():
 
 def test_interleaved_two_sessions():
 	"""Commands on two sessions interleaved — no cross-contamination in capture."""
-	s1 = ita('new').stdout.strip()
-	s2 = ita('new').stdout.strip()
+	s1 = ita('new').stdout.strip().split('\t')[-1]
+	s2 = ita('new').stdout.strip().split('\t')[-1]
 	try:
 		for i in range(5):
 			ita('send', f'echo s1_{i}', '-s', s1)
@@ -83,6 +83,6 @@ def test_ten_sessions_open_close():
 	for i in range(10):
 		r = ita('new')
 		assert r.returncode == 0, f"new failed on iteration {i}"
-		sid = r.stdout.strip()
+		sid = r.stdout.strip().split('\t')[-1]
 		r2 = ita('close', '-s', sid)
 		assert r2.returncode == 0, f"close failed on iteration {i}"

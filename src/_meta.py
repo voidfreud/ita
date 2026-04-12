@@ -3,7 +3,7 @@
 import json
 import click
 import iterm2
-from _core import cli, run_iterm, get_sticky
+from _core import cli, run_iterm
 
 
 @cli.command()
@@ -35,16 +35,6 @@ def doctor():
 	async def _run(connection):
 		app = await iterm2.async_get_app(connection)
 		checks.append(('iTerm2 reachable', True, None))
-
-		sticky = get_sticky()
-		if sticky:
-			s = app.get_session_by_id(sticky)
-			if s:
-				checks.append(('Sticky session valid', True, sticky[:8]))
-			else:
-				checks.append(('Sticky session valid', False, f'{sticky[:8]} not found'))
-		else:
-			checks.append(('Sticky session', True, 'Not set'))
 
 		try:
 			import subprocess

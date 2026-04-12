@@ -202,13 +202,11 @@ def menu_state(item, output_json):
 
 @cli.command()
 def repl():
-    """Interactive REPL mode. Maintains sticky context. Type 'exit' to quit."""
+    """Interactive REPL mode. Type 'exit' to quit."""
     from click.testing import CliRunner
     import shlex
-    import _core
 
     click.echo("ita REPL — type commands, 'exit' to quit")
-    click.echo(f"Target: {_core.get_sticky() or '(none)'}")
 
     runner = CliRunner(mix_stderr=False)
     while True:

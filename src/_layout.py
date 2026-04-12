@@ -3,7 +3,7 @@
 import json
 import click
 import iterm2
-from _core import cli, run_iterm, resolve_session, set_sticky
+from _core import cli, run_iterm, resolve_session
 
 DIRECTION_MAP = {
 	'right': iterm2.NavigationDirection.RIGHT,
@@ -21,7 +21,7 @@ DIRECTION_MAP = {
 @click.option('--profile', default=None)
 @click.option('-s', '--session', 'session_id', default=None)
 def split(split_dir, profile, session_id):
-	"""Split current pane. New pane becomes sticky target."""
+	"""Split current pane. Returns new session ID."""
 	vertical = split_dir == 'vertical'
 	async def _run(connection):
 		session = await resolve_session(connection, session_id)
@@ -33,7 +33,6 @@ def split(split_dir, profile, session_id):
 			raise
 		return new_session.session_id
 	sid = run_iterm(_run)
-	set_sticky(sid)
 	click.echo(sid)
 
 
@@ -41,7 +40,7 @@ def split(split_dir, profile, session_id):
 @click.argument('direction', type=click.Choice(['right', 'left', 'above', 'below']))
 @click.option('-s', '--session', 'session_id', default=None)
 def pane(direction, session_id):
-	"""Navigate to adjacent split pane. Updates sticky target."""
+	"""Navigate to adjacent split pane. Returns new session ID."""
 	async def _run(connection):
 		session = await resolve_session(connection, session_id)
 		original_id = session.session_id
@@ -51,7 +50,6 @@ def pane(direction, session_id):
 		new_session = tab.current_session
 		if not new_session or new_session.session_id == original_id:
 			raise click.ClickException(f"No pane to the {direction} of current session")
-		set_sticky(new_session.session_id)
 		return new_session.session_id
 	sid = run_iterm(_run)
 	click.echo(sid)
@@ -93,7 +91,7 @@ def tab():
 @click.option('--window', 'window_id', default=None)
 @click.option('--profile', default=None)
 def tab_new(window_id, profile):
-	"""Create new tab. Sets sticky target."""
+	"""Create new tab. Returns session ID."""
 	async def _run(connection):
 		app = await iterm2.async_get_app(connection)
 		window = app.get_window_by_id(window_id) if window_id else app.current_terminal_window
@@ -106,7 +104,6 @@ def tab_new(window_id, profile):
 				raise click.ClickException(f"Profile not found: {profile!r}") from e
 			raise
 		session = new_tab.current_session
-		set_sticky(session.session_id)
 		return session.session_id
 	click.echo(run_iterm(_run))
 

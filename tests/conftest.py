@@ -27,6 +27,12 @@ def ita_ok(*args, **kwargs):
 	return r.stdout.strip()
 
 
+def _extract_sid(output: str) -> str:
+	"""Extract session ID from 'ita new' output (name\\tUUID format)."""
+	parts = output.strip().split('\t')
+	return parts[-1] if len(parts) > 1 else parts[0]
+
+
 def _all_session_ids() -> set[str]:
 	"""Return set of all current iTerm2 session IDs."""
 	r = ita('status', '--json', timeout=10)
@@ -64,13 +70,11 @@ def _close_test_sessions(sids: list[str]) -> None:
 def session(request):
 	"""Fresh iTerm2 session per test. Named 'ita-test-<testname>' for leak detection.
 	Guaranteed teardown via finalizer (not yield) so it runs even on hard failures."""
-	r = ita('new')
-	assert r.returncode == 0, f"Failed to create session: {r.stderr}"
-	sid = r.stdout.strip()
-	assert sid, "Session ID returned empty"
-	# Name it so leaked sessions are identifiable
 	safe_name = (TEST_SESSION_PREFIX + request.node.name[:30]).replace(' ', '_')
-	ita('name', '-s', sid, safe_name)
+	r = ita('new', '--name', safe_name)
+	assert r.returncode == 0, f"Failed to create session: {r.stderr}"
+	sid = _extract_sid(r.stdout)
+	assert sid, "Session ID returned empty"
 
 	def _teardown():
 		ita('close', '-s', sid, timeout=10)
@@ -82,11 +86,10 @@ def session(request):
 @pytest.fixture(scope='module')
 def shared_session(request):
 	"""Module-scoped session for read-only tests (faster than per-test)."""
-	r = ita('new')
-	assert r.returncode == 0, f"Failed to create module session: {r.stderr}"
-	sid = r.stdout.strip()
 	safe_name = (TEST_SESSION_PREFIX + 'shared-' + request.module.__name__[:20]).replace(' ', '_')
-	ita('name', '-s', sid, safe_name)
+	r = ita('new', '--name', safe_name)
+	assert r.returncode == 0, f"Failed to create module session: {r.stderr}"
+	sid = _extract_sid(r.stdout)
 
 	def _teardown():
 		ita('close', '-s', sid, timeout=10)

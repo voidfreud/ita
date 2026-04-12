@@ -164,12 +164,10 @@ def test_inject_hex_invalid_chars(session):
 	assert r.stderr.strip(), "inject --hex ZZ produced no error message"
 
 
-def test_use_nonexistent_session():
-	"""ita use FAKE_ID should set sticky (ita use doesn't validate), but subsequent commands should fail."""
-	ita('use', 'FAKE_SESSION_ID_DOES_NOT_EXIST')
+def test_read_nonexistent_session():
+	"""ita read -s FAKE_ID should fail cleanly."""
 	r = ita('read', '-s', 'FAKE_SESSION_ID_DOES_NOT_EXIST')
 	assert r.returncode == 1, f"read on fake session should rc=1; got {r.returncode}"
-	ita('use', '--clear')
 
 
 # ── C. State after error ──────────────────────────────────────────────────────
@@ -194,19 +192,17 @@ def test_session_usable_after_failed_cmd(session):
 	assert 'still_alive' in r.stdout, f"expected output missing: {r.stdout!r}"
 
 
-def test_sticky_cleared_after_close():
-	"""After closing sticky session, sticky-targeted commands should fail cleanly."""
+def test_read_closed_session_fails():
+	"""After closing a session, targeting it explicitly should fail cleanly."""
 	r_new = ita('new')
 	assert r_new.returncode == 0
-	sid = r_new.stdout.strip()
-	ita('use', sid)
+	sid = r_new.stdout.strip().split('\t')[-1]
 	ita('close', '-s', sid)
 	time.sleep(0.5)
 	# Now targeting the dead session explicitly should fail
 	r = ita('read', '-s', sid)
 	assert r.returncode == 1, f"read on closed session should rc=1; got {r.returncode}"
 	assert r.stderr.strip(), "no error message for read on closed session"
-	ita('use', '--clear')
 
 
 # ── D. Idempotency and double-operation safety ───────────────────────────────
@@ -231,7 +227,7 @@ def test_close_already_closed():
 	"""Closing an already-closed session should rc=1 with message."""
 	r_new = ita('new')
 	assert r_new.returncode == 0
-	sid = r_new.stdout.strip()
+	sid = r_new.stdout.strip().split('\t')[-1]
 	r1 = ita('close', '-s', sid)
 	assert r1.returncode == 0, f"first close failed: {r1.stderr}"
 	r2 = ita('close', '-s', sid)
@@ -256,11 +252,12 @@ def test_split_multiple_times(session):
 			ita('close', '-s', sid)
 
 
-def test_use_clear_idempotent():
-	"""ita use --clear when no sticky is set should rc=0."""
-	ita('use', '--clear')  # clear first
-	r = ita('use', '--clear')  # clear again
-	assert r.returncode == 0, f"use --clear on already-clear should rc=0; got {r.returncode}"
+def test_no_session_gives_clear_error():
+	"""Commands without -s should give a clear error message."""
+	r = ita('read')
+	assert r.returncode == 1, f"read without -s should rc=1; got {r.returncode}"
+	assert 'no session specified' in r.stderr.lower() or 'session' in r.stderr.lower(), \
+		f"Expected clear error about missing session; got: {r.stderr}"
 
 
 # ── E. Concurrent operations ─────────────────────────────────────────────────
@@ -270,7 +267,8 @@ def test_concurrent_run_different_sessions():
 	r1 = ita('new')
 	r2 = ita('new')
 	assert r1.returncode == 0 and r2.returncode == 0
-	s1, s2 = r1.stdout.strip(), r2.stdout.strip()
+	s1 = r1.stdout.strip().split('\t')[-1]
+	s2 = r2.stdout.strip().split('\t')[-1]
 	results = {}
 	try:
 		time.sleep(1)
