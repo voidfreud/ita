@@ -19,6 +19,7 @@ from _core import cli  # noqa: E402 — must come after sys.path modification
 import _orientation  # noqa: E402, F401 — status, focus, version
 import _session      # noqa: E402, F401 — new, close, activate, name, restart, resize, clear, capture
 import _send         # noqa: E402, F401 — run, send, inject (not _io: collides with built-in)
+import _lock         # noqa: E402, F401 — lock, unlock (#109 session write-lock)
 import _output       # noqa: E402, F401 — read (helpers: _clean_lines, _is_prompt_line)
 import _stream       # noqa: E402, F401 — watch
 import _query        # noqa: E402, F401 — wait, selection, copy, get-prompt

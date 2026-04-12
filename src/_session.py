@@ -4,7 +4,9 @@ from pathlib import Path
 import re
 import click
 import iterm2
-from _core import cli, run_iterm, resolve_session, strip, read_session_lines, check_protected, _all_sessions, parse_filter, match_filter
+from _core import (cli, run_iterm, resolve_session, strip, read_session_lines,
+	check_protected, _all_sessions, parse_filter, match_filter,
+	session_writelock)
 
 
 async def _fresh_name(session) -> str:
@@ -153,7 +155,8 @@ def close(session_id, filter_expr, all_flag, quiet, dry_run, force):
             check_protected(session.session_id, force=force)
             closed_id = session.session_id
             if not dry_run:
-                await session.async_close(force=True)
+                with session_writelock(session.session_id, force=force):
+                    await session.async_close(force=True)
         run_iterm(_run)
         if closed_id:
             if dry_run:
@@ -269,7 +272,9 @@ def name(title, session_id, filter_expr, all_flag, dry_run, quiet):
 @cli.command()
 @click.option('-s', '--session', 'session_id', default=None)
 @click.option('-q', '--quiet', is_flag=True, help='Suppress confirmation message')
-def restart(session_id, quiet):
+@click.option('--force', is_flag=True,
+    help='Override protected-session and write-lock guards.')
+def restart(session_id, quiet, force):
     """Restart session. Prints new session ID (may differ after restart)."""
     old_id = None
     async def _run(connection):
@@ -277,9 +282,11 @@ def restart(session_id, quiet):
         import asyncio
         app = await iterm2.async_get_app(connection)
         session = await resolve_session(connection, session_id)
+        check_protected(session.session_id, force=force)
         old_id = session.session_id
         tab_id = session.tab.tab_id if session.tab else None
-        await session.async_restart(only_if_exited=False)
+        with session_writelock(session.session_id, force=force):
+            await session.async_restart(only_if_exited=False)
         # Wait briefly for iTerm2 to register the new session object
         await asyncio.sleep(0.5)
         # Re-fetch app state and find the replacement session in the same tab
@@ -354,7 +361,8 @@ def resize(cols, rows, session_id, quiet):
 @click.option('--all', 'all_flag', is_flag=True, help='Apply to every session (#125).')
 @click.option('--dry-run', is_flag=True, help='Print what would be cleared without doing it.')
 @click.option('-q', '--quiet', is_flag=True, help='Suppress confirmation message')
-def clear_screen(session_id, filter_expr, all_flag, dry_run, quiet):
+@click.option('--force', is_flag=True, help='Override write-lock guard (#109).')
+def clear_screen(session_id, filter_expr, all_flag, dry_run, quiet, force):
     """Clear session screen (Ctrl+L). Supports --where / --all for bulk."""
     bulk = bool(filter_expr or all_flag)
     if not bulk:
@@ -363,8 +371,12 @@ def clear_screen(session_id, filter_expr, all_flag, dry_run, quiet):
             nonlocal cleared_id
             session = await resolve_session(connection, session_id)
             cleared_id = session.session_id
+            # clear lacks a protect check in the original; writelock still applies
+            # but we pass force=True here to avoid a surprise guard on clear
+            # (matches original behavior — only add concurrency guard).
             if not dry_run:
-                await session.async_send_text('\x0c')
+                with session_writelock(session.session_id, force=force):
+                    await session.async_send_text('\x0c')
         run_iterm(_run)
         if dry_run:
             click.echo(f"Would clear: {cleared_id}")

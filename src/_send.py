@@ -8,7 +8,8 @@ import time
 import uuid
 import click
 import iterm2
-from _core import cli, run_iterm, resolve_session, strip, PROMPT_CHARS, last_non_empty_index, check_protected
+from _core import (cli, run_iterm, resolve_session, strip, PROMPT_CHARS,
+	last_non_empty_index, check_protected, session_writelock)
 
 
 def _is_prompt_line(s: str) -> bool:
@@ -204,6 +205,12 @@ def run(cmd, timeout, lines, tail_n, use_json, persist, check_integration, stdin
 	async def _run(connection):
 		session = await resolve_session(connection, session_id)
 		check_protected(session.session_id, force=force)
+		# Writelock held for the whole send+await-completion window so a
+		# second ita can't interleave input before this command finishes.
+		with session_writelock(session.session_id, force=force):
+			return await _run_inner(connection, session)
+
+	async def _run_inner(connection, session):
 		start = time.time()
 
 		# #144 / #145: detect shell integration so we can (a) shorten the
@@ -356,7 +363,8 @@ def send(text, raw, no_newline, session_id, force):
 	async def _run(connection):
 		session = await resolve_session(connection, session_id)
 		check_protected(session.session_id, force=force)
-		await session.async_send_text(text if (raw or no_newline) else text + '\n')
+		with session_writelock(session.session_id, force=force):
+			await session.async_send_text(text if (raw or no_newline) else text + '\n')
 	run_iterm(_run)
 
 
@@ -371,6 +379,12 @@ def inject(data, is_hex, session_id, force):
 	async def _run(connection):
 		session = await resolve_session(connection, session_id)
 		check_protected(session.session_id, force=force)
+		# acquire writelock before encoding so a concurrent write sees the lock
+		# immediately (encoding may raise — that's fine, __exit__ releases).
+		with session_writelock(session.session_id, force=force):
+			await _inject_impl(session, data, is_hex)
+
+	async def _inject_impl(session, data, is_hex):
 		if is_hex:
 			normalized = data.replace(' ', '')
 			if not normalized:
@@ -481,7 +495,8 @@ def key(keys, session_id, force):
 	async def _run(connection):
 		session = await resolve_session(connection, session_id)
 		check_protected(session.session_id, force=force)
-		# Decode bytes back to a str for async_send_text (it takes text, not raw bytes —
-		# iTerm2 internally encodes via the session's terminal encoding).
-		await session.async_send_text(payload.decode('latin-1'))
+		with session_writelock(session.session_id, force=force):
+			# Decode bytes back to a str for async_send_text (it takes text, not raw bytes —
+			# iTerm2 internally encodes via the session's terminal encoding).
+			await session.async_send_text(payload.decode('latin-1'))
 	run_iterm(_run)
