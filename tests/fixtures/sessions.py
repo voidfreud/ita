@@ -1,5 +1,7 @@
-"""Session-lifecycle fixtures: session_factory, broadcast_domain, protected_session."""
+"""Session-lifecycle fixtures: session_factory, broadcast_domain, protected_session, shell."""
 import concurrent.futures
+import shutil
+import time
 import pytest
 
 from conftest import ita, ita_ok, _extract_sid, TEST_SESSION_PREFIX
@@ -51,6 +53,48 @@ def broadcast_domain(session_factory):
 	yield sids
 	# Teardown: turn off broadcast (best-effort)
 	ita('broadcast', 'off', *sids, timeout=10)
+
+
+def _shell_params():
+	"""Build params list; skip fish if not installed."""
+	shells = ["bash", "zsh"]
+	if shutil.which("fish"):
+		shells.append("fish")
+	return shells
+
+
+@pytest.fixture(params=_shell_params())
+def shell(request):
+	"""Parametrized fixture that yields a running session ID for each shell.
+
+	Strategy: spawn a fresh ``ita new`` session then immediately send
+	``exec <shell>`` as the first keypress via ``--run``.  Profile-command
+	override would require a pre-existing named iTerm2 profile per shell,
+	which is not guaranteed on every machine.  Sending ``exec <shell>\\n``
+	is simpler, portable, and survives the default profile.
+
+	Yields a dict: {"sid": str, "shell": str}  (e.g. "bash" / "zsh" / "fish").
+
+	Fish is skipped automatically when ``shutil.which("fish")`` returns None.
+	"""
+	shell_name: str = request.param
+	safe_name = (
+		TEST_SESSION_PREFIX + "shell-" + shell_name + "-" + request.node.name[:15]
+	).replace(" ", "_")
+
+	r = ita("new", "--name", safe_name, "--run", f"exec {shell_name}\n")
+	assert r.returncode == 0, f"shell fixture: ita new failed: {r.stderr}"
+	sid = _extract_sid(r.stdout)
+	assert sid, "shell fixture: empty session ID"
+
+	# Give the shell a moment to start before tests begin sending commands.
+	time.sleep(0.4)
+
+	def _teardown():
+		ita("close", "-s", sid, timeout=10)
+
+	request.addfinalizer(_teardown)
+	yield {"sid": sid, "shell": shell_name}
 
 
 @pytest.fixture
