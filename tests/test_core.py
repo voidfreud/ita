@@ -99,3 +99,42 @@ def test_coerce_pref_string_passthrough(val):
     from _config import _coerce_pref_value
     result = _coerce_pref_value(val)
     assert result == val
+
+
+# ── Filter expressions (#125) ────────────────────────────────────────────────
+
+def test_parse_filter_eq():
+    from _core import parse_filter
+    assert parse_filter('session_name=main') == ('session_name', '=', 'main')
+
+
+def test_parse_filter_prefix():
+    from _core import parse_filter
+    assert parse_filter('session_name~=ita-test-') == ('session_name', '~=', 'ita-test-')
+
+
+def test_parse_filter_neq():
+    from _core import parse_filter
+    assert parse_filter('process!=vim') == ('process', '!=', 'vim')
+
+
+def test_parse_filter_invalid():
+    import click
+    from _core import parse_filter
+    with pytest.raises(click.ClickException):
+        parse_filter('no-operator-here')
+    with pytest.raises(click.ClickException):
+        parse_filter('=empty-key')
+
+
+def test_match_filter_ops():
+    from _core import match_filter
+    rec = {'session_name': 'ita-test-foo', 'process': 'bash'}
+    assert match_filter(rec, 'session_name', '=', 'ita-test-foo')
+    assert not match_filter(rec, 'session_name', '=', 'other')
+    assert match_filter(rec, 'session_name', '~=', 'ita-test-')
+    assert not match_filter(rec, 'session_name', '~=', 'zzz-')
+    assert match_filter(rec, 'process', '!=', 'vim')
+    assert not match_filter(rec, 'process', '!=', 'bash')
+    assert match_filter(rec, 'path', '=', '')
+    assert match_filter(rec, 'path', '!=', 'something')
