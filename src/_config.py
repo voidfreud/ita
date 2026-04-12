@@ -14,12 +14,34 @@ def var():
     pass
 
 
+# Flat set of all known iTerm2 built-in variable names (unqualified) so that
+# var get/set can skip the automatic 'user.' prefix for built-ins.
+_BUILTIN_VAR_NAMES = frozenset(
+	name
+	for names in (
+		# Session-scope builtins
+		['autoLogId', 'autoName', 'badge', 'bundleId', 'columns', 'rows',
+		 'creationTimeString', 'hostname', 'id', 'jobName', 'jobPid',
+		 'lastCommand', 'name', 'path', 'presentationName', 'pwd',
+		 'processTitle', 'sessionId', 'terminalIconName', 'tty',
+		 'tmuxPaneTitle', 'tmuxRole', 'tmuxWindowTitle', 'username'],
+		# Tab-scope builtins
+		['title', 'tabTitle'],
+		# Window-scope builtins
+		['frame', 'style', 'number'],
+		# App-scope builtins
+		['effectiveTheme', 'localhostName', 'pid', 'termid', 'profileName'],
+	)
+	for name in names
+)
+
+
 @var.command('get')
 @click.argument('name')
 @click.option('--scope', type=click.Choice(['session', 'tab', 'window', 'app']), default='session')
 @click.option('-s', '--session', 'session_id', default=None)
 def var_get(name, scope, session_id):
-    if not name.startswith('user.'):
+    if not name.startswith('user.') and '.' not in name and name not in _BUILTIN_VAR_NAMES:
         name = f'user.{name}'
     async def _run(connection):
         app = await iterm2.async_get_app(connection)
@@ -49,7 +71,7 @@ def var_set(name, value, scope, session_id):
     it is added automatically if not present."""
     if not name.strip():
         raise click.ClickException("Variable name is required")
-    if not name.startswith('user.'):
+    if not name.startswith('user.') and '.' not in name and name not in _BUILTIN_VAR_NAMES:
         name = f'user.{name}'
     async def _run(connection):
         app = await iterm2.async_get_app(connection)

@@ -183,7 +183,8 @@ async def resolve_session(connection, session_id: str | None = None) -> 'iterm2.
 
 # ── CLI root ────────────────────────────────────────────────────────────────
 
-__version__ = '0.2.0'
+
+__version__ = '0.2.1'
 
 
 @click.group()
