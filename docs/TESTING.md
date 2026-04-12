@@ -147,190 +147,190 @@ Legend per class cell: `✓` covered with real assertions, `s` smoke-only (rc=0)
 
 | Command        | json | Happy | Edge | Error | Adv | State | Contract | Prop | Regr | Stress | Perf |
 |----------------|------|-------|------|-------|-----|-------|----------|------|------|--------|------|
-| `status`       | Y    | ✓     |      |       |     |       |          |  —   |      |        |      |
-| `focus`        | Y    |       |      |       |     |       |          |  —   |      |        |      |
+| `status`       | Y    | ✓     | ✓    |       | ✓   |       | ✓        |  —   |      |        |      |
+| `focus`        | Y    | ✓     |      |       |     |       | ✓        |  —   |      |        |      |
 | `version`      | N    | ✓     |  —   |  —    |  —  |  —    |          |  —   |      |  —     |  —   |
-| `protect`      | N    |       |      |       |     | ✓     |          |  —   |      |        |      |
-| `unprotect`    | N    |       |      |       |     |       |          |  —   |      |        |      |
-| `session info` | Y    |       |      |       |     |       |          |      |      |        |      |
+| `protect`      | N    | ✓     |      | ✓     |     | ✓     |          |  —   |      |        |      |
+| `unprotect`    | N    | ✓     |      |       |     | ✓     |          |  —   |      |        |      |
+| `session info` | Y    | ✓     |      |       |     | ✓     | ✓        |      |      |        |      |
 
 ### Session (`_session.py`)
 
 | Command   | json | Happy | Edge | Error | Adv | State | Contract | Prop | Regr | Stress | Perf |
 |-----------|------|-------|------|-------|-----|-------|----------|------|------|--------|------|
-| `new`     | Y    | ✓     | ✓    | ✓     |     |       |          |      | ✓    | ✓      |      |
-| `close`   | N    | ✓     |      | ✓     | ✓   | ✓     |          |      | ✓    |        |      |
-| `activate`| N    | s     |      |       |     |       |          |  —   |      |        |      |
-| `name`    | N    | ✓     | ✓    |       |     | ✓     |          |      |      |        |      |
-| `restart` | N    | s     |      |       |     |       |          |  —   | ✓    |        |      |
-| `resize`  | N    | ✓     | ✓    | ✓     |     |       |          |      |      |        |      |
-| `clear`   | N    | s     |      |       |     |       |          |  —   |      |        |      |
-| `capture` | N    | ✓     | ✓    |       |     |       |          |      |      |        |      |
+| `new`     | Y    | ✓     | ✓    | ✓     | ✓   | ✓     | ✓        | ✓    | ✓    | ✓      |      |
+| `close`   | N    | ✓     | ✓    | ✓     | ✓   | ✓     | ✓        | ✓    | ✓    |        |      |
+| `activate`| N    | s     | ✓    | ✓     |     |       |          |  —   |      |        |      |
+| `name`    | N    | ✓     | ✓    |       |     | ✓     | ✓        | ✓    |      |        |      |
+| `restart` | N    | s     | ✓    | ✓     |     |       | ✓        |  —   | ✓    |        |      |
+| `resize`  | N    | ✓     | ✓    | ✓     |     |       | ✓        | ✓    |      |        |      |
+| `clear`   | N    | s     | ✓    |       |     |       | ✓        |  —   |      |        |      |
+| `capture` | N    | ✓     | ✓    |       |     |       | ✓        |      |      |        |      |
 
 ### Send / run (`_send.py`)
 
 | Command  | json | Happy | Edge | Error | Adv | State | Contract | Prop | Regr | Stress | Perf |
 |----------|------|-------|------|-------|-----|-------|----------|------|------|--------|------|
-| `run`    | Y    | ✓     | ✓    | ✓     | ✓   |       |          | ✓    | ✓    | ✓      |      |
-| `send`   | N    | ✓     | ✓    |       |     |       |          | ✓    |      |        |      |
-| `inject` | N    | ✓     | ✓    | ✓     |     |       |          | ✓    |      |        |      |
-| `key`    | N    | ✓     | ✓    | ✓     |     |       |          |      |      |        |      |
+| `run`    | Y    | ✓     | ✓    | ✓     | ✓   | ✓     | ✓        | ✓    | ✓    | ✓      |      |
+| `send`   | N    | ✓     | ✓    |       | ✓   | ✓     | ✓        | ✓    |      |        |      |
+| `inject` | N    | ✓     | ✓    | ✓     |     | ✓     | ✓        | ✓    | ✓    |        |      |
+| `key`    | N    | ✓     | ✓    | ✓     |     |       | ✓        | ✓    |      |        |      |
 
 ### Output / query (`_output.py`, `_query.py`, `_stream.py`)
 
 | Command       | json | Happy | Edge | Error | Adv | State | Contract | Prop | Regr | Stress | Perf |
 |---------------|------|-------|------|-------|-----|-------|----------|------|------|--------|------|
-| `read`        | N    | ✓     | ✓    |       |     |       |          |      |      |        |      |
-| `wait`        | Y    | s     |      |       |     |       |          |      |      |        |      |
-| `selection`   | Y    |       |      |       |     |       |          |      |      |        |      |
-| `copy`        | N    | s     |      |       |     |       |          |  —   |      |        |      |
-| `get-prompt`  | Y    |       |      |       |     |       |          |  —   |      |        |      |
-| `watch`       | Y    | s     |      |       |     |       |          |      |      |        |      |
+| `read`        | N    | ✓     | ✓    | ✓     | ✓   |       | ✓        | ✓    |      |        |      |
+| `wait`        | Y    | ✓     |      | ✓     |     |       | ✓        |      |      |        |      |
+| `selection`   | Y    | ✓     |      |       |     |       | ✓        |      |      |        |      |
+| `copy`        | N    | s     |      | ✓     |     |       |          |  —   |      |        |      |
+| `get-prompt`  | Y    | ✓     |      | ✓     |     |       | ✓        |  —   |      |        |      |
+| `watch`       | Y    | ✓     | ✓    | ✓     |     |       | ✓        |      | ✓    |        |      |
 
 ### Lock (`_lock.py`)
 
 | Command  | json | Happy | Edge | Error | Adv | State | Contract | Prop | Regr | Stress | Perf |
 |----------|------|-------|------|-------|-----|-------|----------|------|------|--------|------|
-| `lock`   | N    |       |      |       |     |       |          |  —   |      |        |      |
-| `unlock` | N    |       |      |       |     |       |          |  —   |      |        |      |
+| `lock`   | N    | ✓     |      | ✓     |     | ✓     |          |  —   |      |        |      |
+| `unlock` | N    | ✓     |      | ✓     |     | ✓     | ✓        |  —   |      |        |      |
 
 ### Tab (`_tab.py`)
 
 | Command        | json | Happy | Edge | Error | Adv | State | Contract | Prop | Regr | Stress | Perf |
 |----------------|------|-------|------|-------|-----|-------|----------|------|------|--------|------|
-| `tab new`      | N    | ✓     |      |       |     |       |          |  —   |      |        |      |
-| `tab close`    | N    | s     |      |       |     |       |          |  —   |      |        |      |
-| `tab activate` | N    |       |      |       |     |       |          |  —   |      |        |      |
-| `tab next`     | N    | s     |      |       |     |       |          |  —   |      |        |      |
-| `tab prev`     | N    | s     |      |       |     |       |          |  —   |      |        |      |
-| `tab goto`     | Y    |       |      |       |     |       |          |      |      |        |      |
-| `tab list`     | Y    |       |      |       |     |       |          |  —   |      |        |      |
-| `tab info`     | Y    |       |      |       |     |       |          |      |      |        |      |
-| `tab detach`   | N    |       |      |       |     |       |          |  —   |      |        |      |
+| `tab new`      | N    | ✓     | ✓    | ✓     |     |       |          |  —   |      |        |      |
+| `tab close`    | N    | ✓     |      | ✓     |     | ✓     |          |  —   |      |        |      |
+| `tab activate` | N    |       |      | ✓     |     |       |          |  —   |      |        |      |
+| `tab next`     | N    | ✓     |      |       |     | ✓     |          |  —   | ✓    |        |      |
+| `tab prev`     | N    | ✓     |      |       |     |       |          |  —   | ✓    |        |      |
+| `tab goto`     | Y    | ✓     | ✓    | ✓     |     |       |          |      |      |        |      |
+| `tab list`     | Y    | ✓     |      |       |     |       | ✓        |  —   |      |        |      |
+| `tab info`     | Y    | ✓     |      | ✓     |     |       | ✓        |      |      |        |      |
+| `tab detach`   | N    | ✓     |      | ✓     |     |       |          |  —   |      |        |      |
 | `tab move`     | N    |       |      |       |     |       |          |      |      |        |      |
-| `tab profile`  | N    |       |      |       |     |       |          |      |      |        |      |
-| `tab title`    | N    |       |      |       |     |       |          |      |      |        |      |
+| `tab profile`  | N    |       |      | ✓     |     |       |          |      |      |        |      |
+| `tab title`    | N    | ✓     | ✓    |       |     | ✓     |          | ✓    |      |        |      |
 
 ### Window (`_layout.py`)
 
 | Command              | json | Happy | Edge | Error | Adv | State | Contract | Prop | Regr | Stress | Perf |
 |----------------------|------|-------|------|-------|-----|-------|----------|------|------|--------|------|
-| `window new`         | N    |       |      |       |     |       |          |  —   |      |        |      |
-| `window close`       | N    |       |      |       |     |       |          |  —   |      |        |      |
-| `window activate`    | N    |       |      |       |     |       |          |  —   |      |        |      |
-| `window title`       | N    | s     |      |       |     |       |          |      |      |        |      |
-| `window fullscreen`  | N    |       |      |       |     |       |          |  —   |      |        |      |
-| `window frame`       | N    | s (GET) |    |       |     |       |          |      |      |        |      |
-| `window list`        | Y    |       |      |       |     |       |          |  —   |      |        |      |
+| `window new`         | N    | ✓     |      | ✓     |     |       |          |  —   |      |        |      |
+| `window close`       | N    | ✓     | ✓    | ✓     |     | ✓     | ✓        |  —   |      |        |      |
+| `window activate`    | N    | ✓     |      | ✓     |     |       |          |  —   |      |        |      |
+| `window title`       | N    | ✓     | ✓    |       |     | ✓     |          | ✓    |      |        |      |
+| `window fullscreen`  | N    | ✓     |      | ✓     |     | ✓     |          |  —   |      |        |      |
+| `window frame`       | N    | ✓     | ✓    |       |     | ✓     |          | ✓    |      |        |      |
+| `window list`        | Y    | ✓     |      |       |     |       | ✓        |  —   |      |        |      |
 
 ### Pane (`_pane.py`)
 
 | Command | json | Happy | Edge | Error | Adv | State | Contract | Prop | Regr | Stress | Perf |
 |---------|------|-------|------|-------|-----|-------|----------|------|------|--------|------|
-| `split` | N    | ✓     | ✓    |       |     |       |          |      |      |        |      |
-| `pane`  | N    |       |      |       |     |       |          |      |      |        |      |
-| `move`  | N    |       |      |       |     |       |          |      |      |        |      |
-| `swap`  | N    |       |      |       |     |       |          |      |      |        |      |
+| `split` | N    | ✓     | ✓    | ✓     |     | ✓     | ✓        |      |      |        |      |
+| `pane`  | N    | ✓     |      | ✓     |     |       |          |      |      |        |      |
+| `move`  | N    |       |      | ✓     |     | ✓     |          |      | ✓    |        |      |
+| `swap`  | N    |       |      | ✓     |     | ✓     |          | ✓    |      |        |      |
 
 ### Config (`_config.py`)
 
 | Command          | json | Happy | Edge | Error | Adv | State | Contract | Prop | Regr | Stress | Perf |
 |------------------|------|-------|------|-------|-----|-------|----------|------|------|--------|------|
-| `var get`        | Y    | ✓     | ✓    | ✓     |     | ✓     |          | ✓    |      |        |      |
+| `var get`        | Y    | ✓     | ✓    | ✓     |     | ✓     |          | ✓    | ✓    |        |      |
 | `var set`        | Y    | ✓     | ✓    |       |     | ✓     |          | ✓    |      |        |      |
-| `var list`       | Y    |       |      |       |     |       |          |  —   |      |        |      |
+| `var list`       | Y    | ✓     |      |       |     |       | ✓        |  —   |      |        |      |
 | `app version`    | N    | s     |      |       |     |       |          |  —   |      |        |      |
-| `app activate`   | N    |       |      |       |     |       |          |  —   |      |        |      |
-| `app hide`       | N    |       |      |       |     |       |          |  —   |      |        |      |
+| `app activate`   | N    | ✓     |      |       |     |       |          |  —   |      |        |      |
+| `app hide`       | N    | ✓     |      |       |     |       |          |  —   |      |        |      |
 | `app quit`       | N    |       |      |       |     |       |          |  —   |      |        |      |
-| `app theme`      | N    |       |      |       |     |       |          |      |      |        |      |
+| `app theme`      | N    | ✓     |      |       |     |       |          |      |      |        |      |
 | `pref get`       | N    | ✓     |      | ✓     |     |       |          |      |      |        |      |
-| `pref set`       | Y    | ✓     | ✓    |       |     | ✓     |          |      |      |        |      |
+| `pref set`       | Y    | ✓     | ✓    |       |     | ✓     | ✓        |      |      |        |      |
 | `pref list`      | Y    | ✓     |      |       |     |       |          |  —   |      |        |      |
-| `pref theme`     | N    |       |      |       |     |       |          |      |      |        |      |
-| `pref tmux`      | N    |       |      |       |     |       |          |      |      |        |      |
-| `broadcast on`   | N    | ✓     |      |       | ✓   | ✓     |          |  —   |      |        |      |
-| `broadcast send` | N    |       |      |       | ✓   |       |          |      |      |        |      |
+| `pref theme`     | N    | ✓     |      |       |     |       |          |      |      |        |      |
+| `pref tmux`      | N    | ✓     |      | ✓     |     |       |          |      |      |        |      |
+| `broadcast on`   | N    | ✓     |      | ✓     | ✓   | ✓     |          |  —   |      |        |      |
+| `broadcast send` | N    | ✓     |      | ✓     | ✓   |       |          |      |      |        |      |
 | `broadcast off`  | N    | ✓     |      |       |     | ✓     |          |  —   |      |        |      |
-| `broadcast add`  | N    |       |      |       |     |       |          |      |      |        |      |
-| `broadcast set`  | N    |       |      |       |     |       |          |      |      |        |      |
-| `broadcast list` | Y    |       |      |       |     |       |          |  —   |      |        |      |
+| `broadcast add`  | N    | ✓     |      | ✓     |     | ✓     |          |      |      |        |      |
+| `broadcast set`  | N    | ✓     |      | ✓     |     | ✓     |          |      |      |        |      |
+| `broadcast list` | Y    | ✓     |      |       |     |       | ✓        |  —   |      |        |      |
 
 ### Interactive (`_interactive.py`)
 
 | Command       | json | Happy | Edge | Error | Adv | State | Contract | Prop | Regr | Stress | Perf |
 |---------------|------|-------|------|-------|-----|-------|----------|------|------|--------|------|
-| `alert`       | N    |       |      |       |     |       |          |  —   |      |        |      |
-| `ask`         | N    |       |      |       |     |       |          |      |      |        |      |
-| `pick`        | N    |       |      |       |     |       |          |      |      |        |      |
-| `save-dialog` | N    |       |      |       |     |       |          |      |      |        |      |
-| `menu list`   | Y    |       |      |       |     |       |          |  —   |      |        |      |
-| `menu select` | N    |       |      |       |     |       |          |      |      |        |      |
-| `menu state`  | Y    |       |      |       |     |       |          |      |      |        |      |
-| `repl`        | N    |       |      | ✓     |     |       |          |  —   |      |        |      |
+| `alert`       | N    | ✓     | ✓    | ✓     |     |       | ✓        |  —   |      |        |      |
+| `ask`         | N    | ✓     | ✓    | ✓     |     |       | ✓        |      |      |        |      |
+| `pick`        | N    | ✓     | ✓    |       |     |       | ✓        |      |      |        |      |
+| `save-dialog` | N    | ✓     | ✓    |       |     |       | ✓        |      |      |        |      |
+| `menu list`   | Y    | ✓     | ✓    |       |     |       | ✓        |  —   |      |        |      |
+| `menu select` | N    |       |      | ✓     |     |       |          |      |      |        |      |
+| `menu state`  | Y    | ✓     |      | ✓     |     |       | ✓        | ✓    |      |        |      |
+| `repl`        | N    | ✓     | ✓    | ✓     |     |       | ✓        |  —   |      |        |      |
 
 ### Management (`_management.py`)
 
 | Command         | json | Happy | Edge | Error | Adv | State | Contract | Prop | Regr | Stress | Perf |
 |-----------------|------|-------|------|-------|-----|-------|----------|------|------|--------|------|
-| `profile list`  | Y    | ✓     |      |       |     |       |          |  —   |      |        |      |
-| `profile show`  | N    |       |      |       |     |       |          |      |      |        |      |
-| `profile get`   | N    |       |      |       |     |       |          |      |      |        |      |
-| `profile apply` | N    |       |      |       |     |       |          |      |      |        |      |
-| `profile set`   | N    | s     |      |       |     |       |          |      |      |        |      |
-| `presets`       | Y    | ✓     |      |       |     |       |          |  —   |      |        |      |
-| `theme`         | N    | ✓     |      |       |     |       |          |      |      |        |      |
+| `profile list`  | Y    | ✓     | ✓    |       |     |       | ✓        |  —   |      |        |      |
+| `profile show`  | N    | ✓     |      | ✓     |     | ✓     | ✓        |      |      |        |      |
+| `profile get`   | N    | ✓     |      |       |     |       |          |      |      |        |      |
+| `profile apply` | N    |       |      | ✓     |     | ✓     |          |      |      |        |      |
+| `profile set`   | N    | ✓     |      | ✓     |     | ✓     |          | ✓    | ✓    |        |      |
+| `presets`       | Y    | ✓     | ✓    |       |     | ✓     | ✓        |  —   |      |        |      |
+| `theme`         | N    | ✓     |      | ✓     |     |       | ✓        |      | ✓    |        |      |
 
 ### Meta (`_meta.py`)
 
 | Command    | json | Happy | Edge | Error | Adv | State | Contract | Prop | Regr | Stress | Perf |
 |------------|------|-------|------|-------|-----|-------|----------|------|------|--------|------|
-| `commands` | Y    |       |      |       |     |       |          |  —   |      |        |      |
-| `doctor`   | N    | s     |      |       |     |       |          |  —   |      |        |      |
+| `commands` | Y    | ✓     | ✓    |       |     |       | ✓        |  —   |      |        |      |
+| `doctor`   | N    | ✓     | ✓    |       |     | ✓     | ✓        |  —   | ✓    |        |      |
 
 ### Events (`_events.py`)
 
 | Command             | json | Happy | Edge | Error | Adv | State | Contract | Prop | Regr | Stress | Perf |
 |---------------------|------|-------|------|-------|-----|-------|----------|------|------|--------|------|
-| `on output`         | Y    | ✓     |      |       |     |       |          |      |      |        |      |
-| `on prompt`         | Y    |       |      |       |     |       |          |      |      |        |      |
-| `on keystroke`      | Y    |       |      |       |     |       |          |      |      |        |      |
-| `on session-new`    | Y    |       |      |       |     |       |          |      |      |        |      |
-| `on session-end`    | Y    | ✓     |      |       |     |       |          |      |      |        |      |
-| `on focus`          | Y    |       |      |       |     |       |          |      |      |        |      |
-| `on layout`         | Y    |       |      |       |     |       |          |      |      |        |      |
-| `coprocess start`   | N    | s     |      |       |     |       |          |  —   |      |        |      |
-| `coprocess stop`    | N    | s     |      |       |     |       |          |  —   |      |        |      |
-| `coprocess list`    | N    |       |      |       |     |       |          |  —   |      |        |      |
-| `annotate`          | N    |       |      |       |     |       |          |      |      |        |      |
-| `rpc`               | N    |       |      |       |     |       |          |      |      |        |      |
+| `on output`         | Y    | ✓     | ✓    |       |     |       | ✓        |      | ✓    |        |      |
+| `on prompt`         | Y    | ✓     |      |       |     |       | ✓        |      |      |        |      |
+| `on keystroke`      | Y    | ✓     |      | ✓     |     |       | ✓        |      |      |        |      |
+| `on session-new`    | Y    | ✓     |      |       |     |       | ✓        |      |      |        |      |
+| `on session-end`    | Y    | ✓     |      |       |     |       | ✓        |      | ✓    |        |      |
+| `on focus`          | Y    | ✓     |      |       |     |       | ✓        |      | ✓    |        |      |
+| `on layout`         | Y    | ✓     |      |       |     |       | ✓        |      |      |        |      |
+| `coprocess start`   | N    | s     |      | ✓     |     |       |          |  —   |      |        |      |
+| `coprocess stop`    | N    | s     |      | ✓     |     |       |          |  —   |      |        |      |
+| `coprocess list`    | N    | ✓     |      |       |     |       |          |  —   |      |        |      |
+| `annotate`          | N    | ✓     | ✓    | ✓     |     |       | ✓        |      |      |        |      |
+| `rpc`               | N    |       |      | ✓     |     |       | ✓        |      |      |        |      |
 
 ### Layouts (`_layouts.py`)
 
 | Command         | json | Happy | Edge | Error | Adv | State | Contract | Prop | Regr | Stress | Perf |
 |-----------------|------|-------|------|-------|-----|-------|----------|------|------|--------|------|
-| `save`          | N    | ✓     |      |       |     | ✓     |          |      |      |        |      |
-| `restore`       | N    | ✓     |      |       |     | ✓     |          |      |      |        |      |
-| `layouts list`  | N    |       |      |       |     |       |          |  —   |      |        |      |
+| `save`          | N    | ✓     | ✓    | ✓     |     | ✓     |          |      |      |        |      |
+| `restore`       | N    | ✓     | ✓    | ✓     |     | ✓     |          |      |      |        |      |
+| `layouts list`  | N    | ✓     |      |       |     |       | ✓        |  —   | ✓    |        |      |
 
 ### tmux (`_tmux.py`)
 
 | Command             | json | Happy | Edge | Error | Adv | State | Contract | Prop | Regr | Stress | Perf |
 |---------------------|------|-------|------|-------|-----|-------|----------|------|------|--------|------|
-| `tmux start`        | N    | s     |      |       |     |       |          |  —   |      |        |      |
-| `tmux stop`         | N    |       |      |       |     |       |          |  —   |      |        |      |
-| `tmux connections`  | Y    |       |      |       |     |       |          |  —   |      |        |      |
-| `tmux windows`      | Y    |       |      |       |     |       |          |  —   |      |        |      |
-| `tmux cmd`          | N    |       |      |       |     |       |          |      |      |        |      |
-| `tmux visible`      | N    |       |      |       |     |       |          |  —   |      |        |      |
-| `tmux detach`       | N    |       |      |       |     |       |          |  —   |      |        |      |
-| `tmux kill-session` | N    |       |      |       |     |       |          |  —   |      |        |      |
+| `tmux start`        | N    | ✓     |      |       |     | ✓     |          |  —   | ✓    |        |      |
+| `tmux stop`         | N    |       | ✓    |       |     |       |          |  —   |      |        |      |
+| `tmux connections`  | Y    | ✓     |      |       |     |       | ✓        |  —   |      |        |      |
+| `tmux windows`      | Y    | ✓     |      |       |     |       | ✓        |  —   | ✓    |        |      |
+| `tmux cmd`          | N    | ✓     |      | ✓     |     |       |          |      |      |        |      |
+| `tmux visible`      | N    |       |      | ✓     |     |       |          |  —   |      |        |      |
+| `tmux detach`       | N    |       |      | ✓     |     |       |          |  —   |      |        |      |
+| `tmux kill-session` | N    |       |      | ✓     |     |       |          |  —   |      |        |      |
 
 ### Overview (`_overview.py`)
 
 | Command    | json | Happy | Edge | Error | Adv | State | Contract | Prop | Regr | Stress | Perf |
 |------------|------|-------|------|-------|-----|-------|----------|------|------|--------|------|
-| `overview` | Y    |       |      |       |     |       |          |      |      |        |      |
+| `overview` | Y    | ✓     | ✓    |       |     |       | ✓        |      |      |        |      |
 
 ---
 
