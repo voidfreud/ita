@@ -133,6 +133,21 @@ Wiring is deferred to a follow-up PR; the contract is fixed now so tests can be 
 
 Coverage report (`pytest --cov=src --cov-report=xml`) is attached as a CI artifact.
 
+### 7.1 Budget table (perf lane)
+
+Budgets are enforced in `tests/test_perf.py`. A violation causes `rc != 0` in the `perf` lane.
+`p99` over 20 samples is effectively the maximum value for that run; this is acceptable as a gate.
+
+| Command                          | p50 budget | p99 budget | Notes                                              |
+|----------------------------------|------------|------------|----------------------------------------------------|
+| `ita status --json`              | < 100 ms   | < 300 ms   |                                                    |
+| `ita version`                    | < 50 ms    | —          | No iTerm2 API call expected; violation = candidate bug |
+| `ita run 'echo hi' -s <session>` | < 500 ms   | < 1.5 s    |                                                    |
+| `ita var get foo -s <session>`   | < 200 ms   | < 600 ms   |                                                    |
+| `ita send 'x' -s <session>`      | < 200 ms   | —          |                                                    |
+| `ita new` (create + register)    | < 1 s      | < 2.5 s    |                                                    |
+| `ita tab list --json`            | < 200 ms   | —          |                                                    |
+
 ---
 
 ## 8. Command inventory (matrix tracker)

@@ -1,4 +1,8 @@
 """Stress tests: cross-session isolation, large output, rapid-fire, concurrent sessions."""
+import concurrent.futures
+import json
+import os
+import resource
 import sys
 import time
 from pathlib import Path
@@ -86,3 +90,132 @@ def test_ten_sessions_open_close():
 		sid = r.stdout.strip().split('\t')[-1]
 		r2 = ita('close', '-s', sid)
 		assert r2.returncode == 0, f"close failed on iteration {i}"
+
+
+# ---------------------------------------------------------------------------
+# New stress scenarios (issue #238)
+# ---------------------------------------------------------------------------
+
+def test_parallel_nx_m_commands(session_factory):
+	"""10 sessions × 5 commands each in parallel — all succeed, no tracebacks, all alive."""
+	sids = session_factory(10)
+	commands = [
+		lambda sid=sid, cmd=cmd: ita(*cmd, '-s', sid)
+		for sid in sids
+		for cmd in [
+			('run', 'echo hi'),
+			('send', 'echo ping'),
+			('read',),
+			('run', 'true'),
+			('send', 'echo done'),
+		]
+	]
+	with concurrent.futures.ThreadPoolExecutor(max_workers=20) as pool:
+		results = list(pool.map(lambda f: f(), commands))
+
+	for i, r in enumerate(results):
+		assert r.returncode == 0, f"command {i} failed (rc={r.returncode}): {r.stderr}"
+		assert 'Traceback' not in r.stderr, f"command {i} produced traceback:\n{r.stderr}"
+
+	# All sessions still alive
+	status_r = ita('status', '--json')
+	assert status_r.returncode == 0
+	alive_ids = {s['session_id'] for s in json.loads(status_r.stdout)}
+	for sid in sids:
+		assert sid in alive_ids, f"session {sid} is gone after parallel load"
+
+
+def test_fd_leak_100_runs(session):
+	"""100 short 'ita run' invocations must not leak file descriptors in the test process."""
+	def _open_fd_count():
+		# /dev/fd is a reliable macOS/Linux dirfd listing
+		try:
+			return len(os.listdir('/dev/fd'))
+		except OSError:
+			soft, _ = resource.getrlimit(resource.RLIMIT_NOFILE)
+			return sum(1 for fd in range(soft) if _fd_open(fd))
+
+	def _fd_open(fd):
+		try:
+			os.fstat(fd)
+			return True
+		except OSError:
+			return False
+
+	baseline = _open_fd_count()
+	for _ in range(100):
+		ita('run', 'echo x', '-s', session)
+	final = _open_fd_count()
+	assert final <= baseline + 10, (
+		f"FD leak detected: baseline={baseline}, final={final}, delta={final - baseline}"
+	)
+
+
+@pytest.mark.xfail(
+	reason=(
+		"ita is a subprocess-only CLI entry point (not an importable module); "
+		"in-process asyncio task leak measurement requires a refactored library API. "
+		"Candidate improvement: extract ita's async core into a proper package."
+	),
+	strict=False,
+)
+def test_asyncio_task_leak():
+	"""Creating/closing 50 sessions in-process must not leak asyncio tasks.
+
+	Currently xfail: ita.py is a script, not an importable library.
+	Tracking: restructure ita into a library to enable in-process testing.
+	"""
+	import asyncio
+	# If ita were importable as a library this would work.  For now, force the
+	# xfail branch so the test is visible on the radar without blocking CI.
+	raise NotImplementedError(
+		"ita must be extracted to an importable library before this test can run"
+	)
+
+
+def test_memory_ceiling_200_cycles(session_factory):
+	"""200 new/close pairs — RSS growth must stay under 50 MB."""
+	try:
+		import psutil
+		def _rss():
+			return psutil.Process().memory_info().rss
+	except ImportError:
+		# Fallback: ru_maxrss (peak, not current — still useful as a ceiling check)
+		def _rss():
+			usage = resource.getrusage(resource.RUSAGE_SELF)
+			# On macOS ru_maxrss is in bytes; on Linux it's KB
+			scale = 1 if sys.platform == 'darwin' else 1024
+			return usage.ru_maxrss * scale
+
+	samples = []
+	for i in range(200):
+		sids = session_factory(1)
+		ita('close', '-s', sids[0])
+		if i % 50 == 49:
+			samples.append(_rss())
+
+	growth = samples[-1] - samples[0]
+	assert growth < 50 * 1024 * 1024, (
+		f"Memory growth exceeded ceiling: {growth / 1024 / 1024:.1f} MB over 200 cycles "
+		f"(samples: {[f'{s/1024/1024:.1f}MB' for s in samples]})"
+	)
+
+
+def test_window_count_stability():
+	"""100 rapid create/destroy cycles must not alter the window count."""
+	def _window_count():
+		r = ita('window', 'list', '--json')
+		assert r.returncode == 0, f"window list failed: {r.stderr}"
+		return len(json.loads(r.stdout))
+
+	before = _window_count()
+	for _ in range(100):
+		r = ita('new')
+		assert r.returncode == 0
+		sid = r.stdout.strip().split('\t')[-1]
+		ita('close', '-s', sid)
+	after = _window_count()
+
+	assert after == before, (
+		f"Window count changed after 100 create/destroy cycles: before={before}, after={after}"
+	)
