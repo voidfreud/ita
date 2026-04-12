@@ -20,39 +20,39 @@ import iterm2
 PROTECTED_FILE = Path.home() / ".ita_protected"
 
 def get_protected() -> set[str]:
-    """Return set of protected session IDs."""
-    if not PROTECTED_FILE.exists():
-        return set()
-    return {line.strip() for line in PROTECTED_FILE.read_text().splitlines() if line.strip()}
+	"""Return set of protected session IDs."""
+	if not PROTECTED_FILE.exists():
+		return set()
+	return {line.strip() for line in PROTECTED_FILE.read_text().splitlines() if line.strip()}
 
 def add_protected(session_id: str) -> None:
-    """Add session_id to the protected list."""
-    existing = get_protected()
-    existing.add(session_id)
-    PROTECTED_FILE.write_text('\n'.join(sorted(existing)) + '\n')
+	"""Add session_id to the protected list."""
+	existing = get_protected()
+	existing.add(session_id)
+	PROTECTED_FILE.write_text('\n'.join(sorted(existing)) + '\n')
 
 def remove_protected(session_id: str) -> None:
-    """Remove session_id from the protected list."""
-    existing = get_protected()
-    existing.discard(session_id)
-    if existing:
-        PROTECTED_FILE.write_text('\n'.join(sorted(existing)) + '\n')
-    else:
-        PROTECTED_FILE.unlink(missing_ok=True)
+	"""Remove session_id from the protected list."""
+	existing = get_protected()
+	existing.discard(session_id)
+	if existing:
+		PROTECTED_FILE.write_text('\n'.join(sorted(existing)) + '\n')
+	else:
+		PROTECTED_FILE.unlink(missing_ok=True)
 
 def check_protected(session_id: str, force: bool = False) -> None:
-    """Raise ClickException if session_id is in ~/.ita_protected and force is False.
+	"""Raise ClickException if session_id is in ~/.ita_protected and force is False.
 
-    Call this in any write command (run, send, key, inject, close, clear, restart)
-    before performing the operation. This prevents accidentally writing to a
-    designated session (e.g. the active Claude Code terminal) when focus shifts."""
-    if force:
-        return
-    if session_id in get_protected():
-        raise click.ClickException(
-            f"Session {session_id[:8]}… is protected (~/.ita_protected). "
-            f"Use --force to override, or `ita unprotect -s {session_id[:8]}` to remove protection."
-        )
+	Call this in any write command (run, send, key, inject, close, clear, restart)
+	before performing the operation. This prevents accidentally writing to a
+	designated session (e.g. the active Claude Code terminal) when focus shifts."""
+	if force:
+		return
+	if session_id in get_protected():
+		raise click.ClickException(
+			f"Session {session_id[:8]}… is protected (~/.ita_protected). "
+			f"Use --force to override, or `ita unprotect -s {session_id[:8]}` to remove protection."
+		)
 
 # ── Session write-lock (#109) ──────────────────────────────────────────────
 #
@@ -179,48 +179,48 @@ class session_writelock:
 PROMPT_CHARS = ('❯', '$', '#', '%', '→', '>>')
 
 def strip(text: str) -> str:
-    """Remove null bytes from terminal output."""
-    return text.replace('\x00', '')
+	"""Remove null bytes from terminal output."""
+	return text.replace('\x00', '')
 
 def last_non_empty_index(contents) -> int:
-    """Last non-empty line index in a ScreenContents, or -1 if blank.
-    number_of_lines is grid height, not content height — the bottom rows are
-    usually empty whitespace, so callers must scan backward to find content."""
-    for i in range(contents.number_of_lines - 1, -1, -1):
-        if strip(contents.line(i).string).strip():
-            return i
-    return -1
+	"""Last non-empty line index in a ScreenContents, or -1 if blank.
+	number_of_lines is grid height, not content height — the bottom rows are
+	usually empty whitespace, so callers must scan backward to find content."""
+	for i in range(contents.number_of_lines - 1, -1, -1):
+		if strip(contents.line(i).string).strip():
+			return i
+	return -1
 
 
 async def read_session_lines(
-    session: 'iterm2.Session',
-    include_scrollback: bool = False,
+	session: 'iterm2.Session',
+	include_scrollback: bool = False,
 ) -> list[str]:
-    """Read session output as a list of cleaned strings.
+	"""Read session output as a list of cleaned strings.
 
-    When include_scrollback is False (default) returns only the visible grid —
-    fast path, behavior unchanged. When True, returns scrollback history + the
-    mutable grid via async_get_line_info + async_get_contents inside a
-    Transaction so the session can't mutate between the two calls.
+	When include_scrollback is False (default) returns only the visible grid —
+	fast path, behavior unchanged. When True, returns scrollback history + the
+	mutable grid via async_get_line_info + async_get_contents inside a
+	Transaction so the session can't mutate between the two calls.
 
-    Null bytes are stripped from every line; trailing blank lines are dropped.
-    Callers filter ita sentinel rows themselves."""
-    if not include_scrollback:
-        contents = await session.async_get_screen_contents()
-        result = [strip(contents.line(i).string) for i in range(contents.number_of_lines)]
-    else:
-        async with iterm2.Transaction(session.connection):
-            info = await session.async_get_line_info()
-            total = info.mutable_area_height + info.scrollback_buffer_height
-            # first_line must be >= overflow; async_get_contents returns
-            # however many lines are actually available. Clamp first to total
-            # so small scrollback / fresh sessions can't yield a bad range.
-            first = min(info.overflow, total)
-            lines = await session.async_get_contents(first, total)
-        result = [strip(line.string) for line in lines]
-    while result and not result[-1].strip():
-        result.pop()
-    return result
+	Null bytes are stripped from every line; trailing blank lines are dropped.
+	Callers filter ita sentinel rows themselves."""
+	if not include_scrollback:
+		contents = await session.async_get_screen_contents()
+		result = [strip(contents.line(i).string) for i in range(contents.number_of_lines)]
+	else:
+		async with iterm2.Transaction(session.connection):
+			info = await session.async_get_line_info()
+			total = info.mutable_area_height + info.scrollback_buffer_height
+			# first_line must be >= overflow; async_get_contents returns
+			# however many lines are actually available. Clamp first to total
+			# so small scrollback / fresh sessions can't yield a bad range.
+			first = min(info.overflow, total)
+			lines = await session.async_get_contents(first, total)
+		result = [strip(line.string) for line in lines]
+	while result and not result[-1].strip():
+		result.pop()
+	return result
 
 # ── Filter expressions (--where) ───────────────────────────────────────────
 
@@ -259,15 +259,15 @@ def match_filter(record: dict, key: str, op: str, value: str) -> bool:
 
 
 def emit(data: Any, use_json: bool = False) -> None:
-    """Print data as plain text or JSON."""
-    if use_json:
-        click.echo(json.dumps(data, indent=2))
-    else:
-        if isinstance(data, list):
-            for item in data:
-                click.echo(item)
-        else:
-            click.echo(data)
+	"""Print data as plain text or JSON."""
+	if use_json:
+		click.echo(json.dumps(data, indent=2))
+	else:
+		if isinstance(data, list):
+			for item in data:
+				click.echo(item)
+		else:
+			click.echo(data)
 
 
 # ── Global-flag helpers (#139, #143) ────────────────────────────────────────
@@ -307,29 +307,29 @@ def confirm_or_skip(msg: str, dry_run: bool = False, yes: bool = False) -> bool:
 # ── iTerm2 runner ──────────────────────────────────────────────────────────
 
 def run_iterm(coro: Callable[..., Awaitable[Any]]) -> Any:
-    """
-    Run an iTerm2 async coroutine synchronously.
-    Usage:
-        result = run_iterm(lambda conn: some_async_fn(conn))
-    """
-    result: dict = {}
-    error: dict = {}
+	"""
+	Run an iTerm2 async coroutine synchronously.
+	Usage:
+		result = run_iterm(lambda conn: some_async_fn(conn))
+	"""
+	result: dict = {}
+	error: dict = {}
 
-    async def _main(connection):
-        try:
-            result['value'] = await coro(connection)
-        except Exception as exc:
-            error['exc'] = exc
+	async def _main(connection):
+		try:
+			result['value'] = await coro(connection)
+		except Exception as exc:
+			error['exc'] = exc
 
-    iterm2.run_until_complete(_main)
+	iterm2.run_until_complete(_main)
 
-    if error:
-        exc = error['exc']
-        if isinstance(exc, click.ClickException):
-            raise exc
-        raise click.ClickException(str(exc))
+	if error:
+		exc = error['exc']
+		if isinstance(exc, click.ClickException):
+			raise exc
+		raise click.ClickException(str(exc))
 
-    return result.get('value')
+	return result.get('value')
 
 # ── Session resolver ────────────────────────────────────────────────────────
 
@@ -385,5 +385,5 @@ __version__ = '0.3.0'
 @click.group()
 @click.version_option(version=__version__)
 def cli():
-    """ita — agent-first iTerm2 control."""
-    pass
+	"""ita — agent-first iTerm2 control."""
+	pass

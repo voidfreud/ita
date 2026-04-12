@@ -34,4 +34,4 @@ import _tmux         # noqa: E402, F401 — tmux -CC group
 import _events       # noqa: E402, F401 — on group, coprocess, annotate, rpc
 
 if __name__ == '__main__':
-    cli()
+	cli()
