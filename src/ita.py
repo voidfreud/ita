@@ -24,7 +24,9 @@ import _lock         # noqa: E402, F401 — lock, unlock (#109 session write-loc
 import _output       # noqa: E402, F401 — read (helpers: _clean_lines, _is_prompt_line)
 import _stream       # noqa: E402, F401 — watch
 import _query        # noqa: E402, F401 — wait, selection, copy, get-prompt
-import _layout       # noqa: E402, F401 — split, pane, move, tab group, window group
+import _pane         # noqa: E402, F401 — split, pane, move, swap
+import _tab          # noqa: E402, F401 — tab group (new, close, activate, navigate, list, info, detach, title)
+import _layout       # noqa: E402, F401 — window group
 import _layouts      # noqa: E402, F401 — save, restore, layouts group (list/delete/rename/export)
 import _management   # noqa: E402, F401 — profile group, presets, theme
 import _meta         # noqa: E402, F401 — commands, doctor
