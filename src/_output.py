@@ -81,8 +81,9 @@ def read(lines_arg, lines_opt, use_json, read_all, ids_only, scrollback,
 		if grep_rx:
 			result = [l for l in result if grep_rx.search(l)]
 		if since_prompt:
-			for i, l in enumerate(result):
-				if _is_prompt_line(l):
+			# Scan backward to find the LAST prompt line; return everything after it.
+			for i in range(len(result) - 1, -1, -1):
+				if _is_prompt_line(result[i]):
 					result = result[i + 1:]
 					break
 		return result
