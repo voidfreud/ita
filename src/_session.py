@@ -2,6 +2,7 @@
 """Session lifecycle commands: new, close, activate, name, restart, resize, clear, capture."""
 from pathlib import Path
 import re
+import shlex
 import click
 import iterm2
 from _core import (cli, run_iterm, resolve_session, strip, read_session_lines,
@@ -139,8 +140,7 @@ def new(new_window, profile, session_name, reuse, replace, cwd, run_cmd, as_json
 		# the simplest path that works with any profile; profile-level working
 		# directory would require custom-profile mutation which is heavier.
 		if cwd:
-			quoted = cwd.replace("'", "'\\''")
-			await session.async_send_text(f"cd '{quoted}'\n")
+			await session.async_send_text(f"cd {shlex.quote(str(cwd))}\n")
 		# --run: fire user command after optional cd. Non-blocking: we just
 		# send text and return; the caller doesn't wait for completion.
 		if run_cmd:
@@ -227,6 +227,12 @@ def close(session_id, filter_expr, all_flag, quiet, dry_run, force):
 			results['closed'].append(r)
 			if not dry_run:
 				try:
+					# WARNING: bulk ops are not write-locked per-session.
+					# Acquiring session_writelock() inside an async loop would
+					# require switching to asyncio.Lock, which is a larger
+					# architectural change. Bulk close is inherently racy by
+					# design; callers should not rely on write-lock exclusion
+					# across --where / --all operations.
 					await s.async_close(force=True)
 				except Exception:
 					# Best-effort bulk close — don't abort the whole batch on
@@ -420,9 +426,7 @@ def clear_screen(session_id, filter_expr, all_flag, dry_run, quiet, force):
 			nonlocal cleared_id
 			session = await resolve_session(connection, session_id)
 			cleared_id = session.session_id
-			# clear lacks a protect check in the original; writelock still applies
-			# but we pass force=True here to avoid a surprise guard on clear
-			# (matches original behavior — only add concurrency guard).
+			check_protected(session.session_id, force=force)
 			if not dry_run:
 				with session_writelock(session.session_id, force=force):
 					await session.async_send_text('\x0c')
@@ -444,6 +448,12 @@ def clear_screen(session_id, filter_expr, all_flag, dry_run, quiet, force):
 		for s, r in pairs:
 			cleared.append(r)
 			if not dry_run:
+				# WARNING: bulk ops are not write-locked per-session.
+				# Acquiring session_writelock() inside an async loop would
+				# require switching to asyncio.Lock, which is a larger
+				# architectural change. Bulk clear is inherently racy by
+				# design; callers should not rely on write-lock exclusion
+				# across --where / --all operations.
 				await s.async_send_text('\x0c')
 	run_iterm(_run_bulk)
 	verb = 'Would clear' if dry_run else 'Cleared'
