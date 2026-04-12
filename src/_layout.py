@@ -74,6 +74,8 @@ def move(session_id_arg, dest_window_id, vertical):
 		if cur_window and cur_window.window_id == dest_window_id:
 			raise click.ClickException(
 				f"Session is already in window {dest_window_id}")
+		if not dest_window.current_tab:
+			raise click.ClickException("Destination window has no active tab")
 		dest_session = dest_window.current_tab.current_session
 		await app.async_move_session(session, dest_session, split_vertically=vertical, before=False)
 	run_iterm(_run)
@@ -145,7 +147,10 @@ def tab_next():
 		w = app.current_terminal_window
 		if w:
 			tabs = w.tabs
-			idx = tabs.index(w.current_tab)
+			try:
+				idx = tabs.index(w.current_tab)
+			except ValueError:
+				raise click.ClickException("Current tab state unavailable — try again")
 			await tabs[(idx + 1) % len(tabs)].async_activate()
 	run_iterm(_run)
 
@@ -157,7 +162,10 @@ def tab_prev():
 		w = app.current_terminal_window
 		if w:
 			tabs = w.tabs
-			idx = tabs.index(w.current_tab)
+			try:
+				idx = tabs.index(w.current_tab)
+			except ValueError:
+				raise click.ClickException("Current tab state unavailable — try again")
 			await tabs[(idx - 1) % len(tabs)].async_activate()
 	run_iterm(_run)
 
