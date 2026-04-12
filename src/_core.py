@@ -91,8 +91,10 @@ async def read_session_lines(
             info = await session.async_get_line_info()
             total = info.mutable_area_height + info.scrollback_buffer_height
             # first_line must be >= overflow; async_get_contents returns
-            # however many lines are actually available.
-            lines = await session.async_get_contents(info.overflow, total)
+            # however many lines are actually available. Clamp first to total
+            # so small scrollback / fresh sessions can't yield a bad range.
+            first = min(info.overflow, total)
+            lines = await session.async_get_contents(first, total)
         result = [strip(line.string) for line in lines]
     while result and not result[-1].strip():
         result.pop()
