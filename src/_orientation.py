@@ -147,3 +147,96 @@ def unprotect(session_id):
 	sid = run_iterm(_resolve)
 	remove_protected(sid)
 	click.echo(f"Unprotected: {sid}")
+
+
+@cli.group()
+def session():
+	"""Single-session operations (info, ...)."""
+	pass
+
+
+@session.command('info')
+@click.option('-s', '--session', 'session_id', default=None,
+	help='Session to inspect (name, UUID, or 8+ char UUID prefix).')
+@click.option('--json', 'use_json', is_flag=True)
+def session_info(session_id, use_json):
+	"""Dump full metadata for a single session (#148).
+
+	Cheaper than `ita status --json | jq select(...)` — one session, no scan."""
+	async def _run(connection):
+		app = await iterm2.async_get_app(connection)
+		target = await resolve_session(connection, session_id)
+		# Locate containing window/tab (Session doesn't expose a back-ref reliably)
+		window_id = None
+		tab_id = None
+		for w in app.windows:
+			for t in w.tabs:
+				for s in t.sessions:
+					if s.session_id == target.session_id:
+						window_id = w.window_id
+						tab_id = t.tab_id
+						break
+		# Current focused session, for is_current
+		current_sid = None
+		cw = app.current_terminal_window
+		if cw and cw.current_tab and cw.current_tab.current_session:
+			current_sid = cw.current_tab.current_session.session_id
+		# Variables
+		proc = strip(await target.async_get_variable('jobName') or '')
+		path = strip(await target.async_get_variable('path') or '')
+		profile = strip(await target.async_get_variable('profileName') or '')
+		shell_int_ver = await target.async_get_variable('user.iterm2_shell_integration_version')
+		# Grid size
+		try:
+			cols = target.grid_size.width
+			rows = target.grid_size.height
+		except Exception:
+			cols = rows = None
+		# Broadcast-domain membership: list of member session_ids per domain
+		# the target participates in.
+		await app.async_refresh_broadcast_domains()
+		broadcast_domains = []
+		for d in app.broadcast_domains:
+			member_ids = [s.session_id for s in d.sessions]
+			if target.session_id in member_ids:
+				broadcast_domains.append(member_ids)
+		# tmux linkage (via containing tab)
+		tmux_window_id = None
+		if tab_id:
+			t = app.get_tab_by_id(tab_id)
+			if t is not None:
+				tmux_window_id = t.tmux_window_id
+		return {
+			'session_id': target.session_id,
+			'name': strip(target.name or ''),
+			'process': proc,
+			'path': path,
+			'profile': profile,
+			'window_id': window_id,
+			'tab_id': tab_id,
+			'cols': cols,
+			'rows': rows,
+			'protected': target.session_id in get_protected(),
+			'shell_integration': bool(shell_int_ver),
+			'tmux_window_id': tmux_window_id,
+			'is_current': target.session_id == current_sid,
+			'broadcast_domains': broadcast_domains,
+		}
+
+	info = run_iterm(_run)
+	if use_json:
+		click.echo(json.dumps(info, indent=2, ensure_ascii=False))
+		return
+	# Plain text: aligned key: value pairs
+	order = [
+		'session_id', 'name', 'process', 'path', 'profile',
+		'window_id', 'tab_id', 'cols', 'rows',
+		'protected', 'shell_integration', 'tmux_window_id',
+		'is_current', 'broadcast_domains',
+	]
+	width = max(len(k) for k in order)
+	for k in order:
+		v = info.get(k)
+		if k == 'broadcast_domains':
+			v = 'none' if not v else '; '.join(','.join(ids) for ids in v)
+		click.echo(f"{k.ljust(width)} : {v}")
