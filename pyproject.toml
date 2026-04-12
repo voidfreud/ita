@@ -10,8 +10,32 @@ requires-python = ">=3.11"
 ita = "ita:cli"
 
 [project.optional-dependencies]
-dev = ["pytest", "hypothesis"]
+dev = [
+	"pytest",
+	"hypothesis",
+	"pytest-cov",
+	"pytest-xdist",
+	"pytest-timeout",
+	"pytest-benchmark",
+	"jsonschema",
+	"ruff",
+]
 
 [tool.pytest.ini_options]
 pythonpath = ["src"]
 # Run with: uv run --with pytest --with hypothesis --with click --with iterm2 pytest tests/
+# See docs/TESTING.md for marker semantics and CI lanes.
+markers = [
+	"integration: live iTerm2 required; auto-skip if API unreachable",
+	"stress: slow cross-session / load tests; weekly or on-demand",
+	"perf: latency-budget benchmarks; nightly",
+	"adversarial: concurrency, races, malformed input, disconnects — 'try to break it'",
+	"regression: guards a previously-fixed bug; name test_issue_<n>_*",
+	"contract: cross-cutting guarantees (--json schema, --quiet, exit codes, output hygiene)",
+	"property: hypothesis-driven fuzz over IDs, names, payloads, timeouts",
+	"edge: empty / huge / unicode / whitespace / boundary inputs and states",
+	"error: invalid input → specific error message and non-zero rc",
+	"state: idempotency and persistence across invocations",
+	"known_broken: documents an unfixed bug; expected to fail",
+	"xfail_flaky: racy/async — filed as a bug; do not fix in test",
+]
