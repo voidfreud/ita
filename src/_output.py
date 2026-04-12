@@ -1,10 +1,10 @@
 # src/_output.py
 """Output reading commands: read. Shared helpers exported for _stream, _query."""
 import json
+import re
 import click
 import iterm2
-from _core import (cli, run_iterm, resolve_session, strip, PROMPT_CHARS,
-	last_non_empty_index, read_session_lines, _is_prompt_line, _SENTINEL_RE)
+from _core import (cli, run_iterm, resolve_session, strip, last_non_empty_index, read_session_lines, _is_prompt_line, _SENTINEL_RE)
 
 
 def _clean_lines(contents) -> list[str]:

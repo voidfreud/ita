@@ -19,7 +19,7 @@ from pathlib import Path
 import pytest
 
 sys.path.insert(0, str(Path(__file__).parent))
-from conftest import ita, ita_ok
+from conftest import ita
 
 pytestmark = [pytest.mark.adversarial, pytest.mark.integration]
 
@@ -238,7 +238,6 @@ def test_disconnect_during_event_wait(session):
 	Forbidden: zombie subprocess, hung process, uncaught Python traceback printed
 	before death.
 	"""
-	import os
 	import signal
 
 	proc = subprocess.Popen(

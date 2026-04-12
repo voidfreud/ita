@@ -7,7 +7,7 @@ from hypothesis import given, settings
 import hypothesis.strategies as st
 
 sys.path.insert(0, str(Path(__file__).parent))
-from conftest import ita, ita_ok
+from conftest import ita
 
 pytestmark = pytest.mark.integration
 
@@ -54,7 +54,7 @@ def test_tab_close_actually_removes_tab():
 	r_new = ita('tab', 'new')
 	assert r_new.returncode == 0
 	# Get tab ID via tab list (the new session should be in a tab)
-	new_sid = r_new.stdout.strip()
+	_new_sid = r_new.stdout.strip()  # noqa: F841 — retained for debugging
 	# find the tab that has this session via tab list --json
 	r_list_before = ita('tab', 'list', '--json')
 	assert r_list_before.returncode == 0

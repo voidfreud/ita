@@ -6,8 +6,6 @@ Marking convention:
   @pytest.mark.known_broken — item is NOT YET FIXED (xfail); test documents expected
                               behaviour and will auto-promote to xpass when fixed.
 """
-import json
-import re
 import subprocess
 import sys
 import time
@@ -16,7 +14,7 @@ from pathlib import Path
 import pytest
 
 sys.path.insert(0, str(Path(__file__).parent))
-from conftest import ita, ita_ok
+from conftest import ita
 
 pytestmark = [pytest.mark.integration]
 
@@ -173,8 +171,9 @@ def test_i1_repl_no_traceback_on_bad_command(session):
 	"""I1 (#104): when a subcommand fails inside repl, the process must NOT
 	crash with a Python traceback. It should handle the error gracefully."""
 	proc = subprocess.run(
+		# Note: repl does not accept -s; session targeting via repl is a pending CLI design issue.
 		['uv', 'run', str(Path(__file__).parent.parent / 'src' / 'ita.py'),
-		 'repl', '-s', session],
+		 'repl'],
 		input='status --json\nexit\n',
 		capture_output=True, text=True, timeout=15,
 	)
@@ -195,7 +194,7 @@ def test_ss2_theme_red_gives_clear_error():
 	if r.returncode != 0:
 		# Error is acceptable but must be informative — not a bare traceback
 		assert 'Traceback' not in r.stderr, f"SS2: raw traceback on theme red: {r.stderr}"
-		assert r.stderr.strip(), f"SS2: theme red failed silently with no error message"
+		assert r.stderr.strip(), "SS2: theme red failed silently with no error message"
 	# If rc=0, the theme was applied — that's also fine
 
 
@@ -346,4 +345,4 @@ def test_on_session_end_fires_and_reports_id():
 		f"on session-end returned rc={proc.returncode}\nstderr: {stderr}"
 	assert not stdout.startswith('Error:'), f"on session-end printed error: {stdout!r}"
 	# Output should be the session ID (or at least not empty)
-	assert stdout.strip(), f"on session-end produced no output after session closed"
+	assert stdout.strip(), "on session-end produced no output after session closed"

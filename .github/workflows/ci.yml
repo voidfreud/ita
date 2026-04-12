@@ -1,0 +1,182 @@
+# CI lanes for ita — see docs/TESTING.md §7 for marker semantics.
+# Closes #239; bundles #245 (runtime deps) and #254 (ruff).
+#
+# NOTE: the `integration` lane installs iTerm2 on GH-hosted macOS but cannot
+# headless-launch it reliably (no display server). A self-hosted macOS runner
+# with a logged-in GUI session is strongly preferred for this lane.
+
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+  schedule:
+    # nightly: integration + perf
+    - cron: "0 3 * * *"
+    # weekly: stress
+    - cron: "0 4 * * 0"
+  workflow_dispatch:
+
+jobs:
+  # ── fast — every push / PR ──────────────────────────────────────────────────
+  fast:
+    name: fast (unit + contract + property + edge + error + state)
+    runs-on: ubuntu-latest
+    if: github.event_name != 'schedule'
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v4
+        with:
+          enable-cache: true
+
+      - name: Install deps
+        run: uv sync --extra dev
+
+      - name: Lint (ruff)
+        run: uvx ruff check src tests
+
+      - name: Test (non-integration, non-stress, non-perf)
+        run: |
+          uv run pytest \
+            --strict-markers \
+            -m "not integration and not stress and not perf" \
+            --cov=src \
+            --cov-report=xml \
+            -q
+
+      - name: Upload coverage
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-fast
+          path: coverage.xml
+
+  # ── regression — every push ─────────────────────────────────────────────────
+  regression:
+    name: regression
+    runs-on: ubuntu-latest
+    if: github.event_name != 'schedule'
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v4
+        with:
+          enable-cache: true
+
+      - name: Install deps
+        run: uv sync --extra dev
+
+      - name: Test (regression)
+        run: uv run pytest --strict-markers -m regression -q
+
+  # ── adversarial — PRs touching core send/session/config/core ───────────────
+  adversarial:
+    name: adversarial
+    runs-on: macos-latest
+    if: github.event_name == 'pull_request'
+    # Only run when relevant source files change
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check changed files
+        id: changes
+        uses: dorny/paths-filter@v3
+        with:
+          filters: |
+            core:
+              - 'src/_send.py'
+              - 'src/_session.py'
+              - 'src/_config.py'
+              - 'src/_core.py'
+
+      - uses: astral-sh/setup-uv@v4
+        if: steps.changes.outputs.core == 'true'
+        with:
+          enable-cache: true
+
+      - name: Install deps
+        if: steps.changes.outputs.core == 'true'
+        run: uv sync --extra dev
+
+      - name: Test (adversarial)
+        if: steps.changes.outputs.core == 'true'
+        run: uv run pytest --strict-markers -m adversarial -q
+
+  # ── integration — nightly + manual (best-effort on GH-hosted) ──────────────
+  integration:
+    name: integration (best-effort — prefer self-hosted)
+    runs-on: macos-latest
+    if: >
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'schedule' && github.event.schedule == '0 3 * * *')
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v4
+        with:
+          enable-cache: true
+
+      - name: Install deps
+        run: uv sync --extra dev
+
+      - name: Install iTerm2
+        run: brew install --cask iterm2
+
+      - name: Launch iTerm2 (best-effort — no display on GH-hosted)
+        run: |
+          open -a iTerm || true
+          sleep 10
+
+      - name: Test (integration)
+        run: uv run pytest --strict-markers -m integration -q
+
+  # ── stress — weekly + manual ────────────────────────────────────────────────
+  stress:
+    name: stress
+    runs-on: macos-latest
+    if: >
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'schedule' && github.event.schedule == '0 4 * * 0')
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v4
+        with:
+          enable-cache: true
+
+      - name: Install deps
+        run: uv sync --extra dev
+
+      - name: Test (stress)
+        run: uv run pytest --strict-markers -m stress --timeout=600 -q
+
+  # ── perf — nightly ──────────────────────────────────────────────────────────
+  perf:
+    name: perf benchmarks
+    runs-on: ubuntu-latest
+    if: >
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'schedule' && github.event.schedule == '0 3 * * *')
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v4
+        with:
+          enable-cache: true
+
+      - name: Install deps
+        run: uv sync --extra dev
+
+      - name: Check if perf tests exist
+        id: perf_exists
+        run: |
+          if [ -f tests/test_perf.py ]; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Test (perf benchmarks)
+        if: steps.perf_exists.outputs.exists == 'true'
+        run: uv run pytest --strict-markers -m perf --benchmark-only -q

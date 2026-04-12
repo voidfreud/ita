@@ -186,7 +186,6 @@ def test_read_line_count_invariant(shared_session):
 # watch — smoke (pre-existing, preserved + minor cleanup)
 # ---------------------------------------------------------------------------
 
-@pytest.mark.xfail(strict=False, reason="watch may hang if prompt not detected in fresh session")
 def test_watch_exits_clean(session):
 	try:
 		r = ita('watch', '-s', session, timeout=8)

@@ -20,11 +20,6 @@ pytestmark = pytest.mark.integration
 # ── PR #149 — broadcast json, event loop, color coercion ────────────────────
 
 @pytest.mark.known_broken
-@pytest.mark.xfail(
-	reason="#113: broadcast list --json fix landed in dead _broadcast.py; "
-	"active code in _config.py has no --json flag",
-	strict=False,
-)
 def test_broadcast_list_json_no_crash():
 	"""#113: broadcast list --json used to crash with NameError (missing import json)."""
 	r = ita('broadcast', 'list', '--json')
@@ -167,10 +162,6 @@ def test_new_named_session():
 	ita('close', '-s', sid)
 
 
-@pytest.mark.xfail(
-	reason="flaky: session.name visibility across ita invocations is racy",
-	strict=False,
-)
 def test_new_reuse_existing():
 	"""#134: ita new --reuse returns existing session if name matches."""
 	test_name = 'ita-smoke-reuse'
@@ -187,10 +178,6 @@ def test_new_reuse_existing():
 	ita('close', '-s', sid1)
 
 
-@pytest.mark.xfail(
-	reason="flaky: session.name visibility across ita invocations is racy",
-	strict=False,
-)
 def test_new_duplicate_name_without_reuse_fails():
 	"""#134: duplicate name without --reuse should error."""
 	test_name = 'ita-smoke-dup'
