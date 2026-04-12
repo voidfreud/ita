@@ -63,7 +63,7 @@ Canonical definitions live in `pyproject.toml` under `[tool.pytest.ini_options] 
 
 ## 4. Fixture contracts (`tests/conftest.py`)
 
-Existing fixtures stay. Planned additions are marked **(planned)** — add them as the matrix is filled, not preemptively.
+Existing fixtures stay. All fixtures below are implemented in `tests/conftest.py` (thin re-exports from `tests/fixtures/`).
 
 | Fixture                 | Scope    | Contract                                                                              |
 |-------------------------|----------|---------------------------------------------------------------------------------------|
@@ -71,11 +71,11 @@ Existing fixtures stay. Planned additions are marked **(planned)** — add them 
 | `shared_session`        | module   | Reusable read-only session across tests (faster happy-path reads)                     |
 | `sweep_leaked_sessions` | session  | Pre/post sweep of orphaned test sessions                                              |
 | `ita` / `ita_ok`        | —        | Subprocess helpers; `ita_ok` asserts rc=0 and returns stdout                          |
-| `session_factory`       | function | **(planned)** Create N sessions in parallel for stress tests                          |
-| `broadcast_domain`      | function | **(planned)** Setup + teardown of a broadcast-on group                                |
-| `protected_session`     | function | **(planned)** Session with protect-on, parametrized with/without `--force`            |
-| `clean_iterm`           | session  | **(planned)** Baseline snapshot + post-test diff; assert no orphan tabs/windows       |
-| `hypothesis_profiles`   | —        | **(planned)** Fast CI profile (few examples) vs thorough nightly profile              |
+| `session_factory`       | function | Create N sessions in parallel for stress tests                          |
+| `broadcast_domain`      | function | Setup + teardown of a broadcast-on group                                |
+| `protected_session`     | function | Session with protect-on, parametrized with/without `--force`            |
+| `clean_iterm`           | session  | Baseline snapshot + post-test diff; assert no orphan tabs/windows       |
+| `hypothesis_profiles`   | —        | Fast CI profile (few examples) vs thorough nightly profile              |
 
 **Rule:** no test spins up its own session outside fixtures. All lifecycle goes through the registry so `sweep_leaked_sessions` can detect leaks.
 

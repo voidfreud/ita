@@ -4,6 +4,10 @@ import subprocess
 from pathlib import Path
 import pytest
 
+# Import fixtures from sub-package so pytest collects them.
+# hypothesis_profiles are registered at import time inside fixtures.environment.
+from fixtures import session_factory, broadcast_domain, protected_session, clean_iterm  # noqa: F401
+
 ITA = Path(__file__).parent.parent / 'src' / 'ita.py'
 
 # Prefix used on all test-created sessions so they're identifiable for cleanup.
@@ -124,6 +128,14 @@ def pytest_configure(config):
 	config.addinivalue_line('markers', 'stress: slow cross-session / load tests')
 	config.addinivalue_line('markers', 'regression: guards against known fixed bugs')
 	config.addinivalue_line('markers', 'known_broken: documents known bug, expected to fail until fixed')
+	config.addinivalue_line('markers', 'contract: cross-cutting contract tests (json, exit codes, hygiene)')
+	config.addinivalue_line('markers', 'edge: edge-case tests')
+	config.addinivalue_line('markers', 'error: error-path tests')
+	config.addinivalue_line('markers', 'state: state/idempotency tests')
+	config.addinivalue_line('markers', 'property: hypothesis property-based tests')
+	config.addinivalue_line('markers', 'adversarial: concurrent / race-condition tests')
+	config.addinivalue_line('markers', 'perf: latency benchmark tests')
+	config.addinivalue_line('markers', 'xfail_flaky: async race — filed as bug, not fixed here')
 
 
 def pytest_collection_modifyitems(config, items):
