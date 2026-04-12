@@ -6,7 +6,7 @@ import click
 import iterm2
 from _core import (cli, run_iterm, resolve_session, strip, read_session_lines,
 	check_protected, _all_sessions, parse_filter, match_filter,
-	session_writelock)
+	session_writelock, confirm_or_skip, success_echo)
 
 
 async def _fresh_name(session) -> str:
@@ -264,13 +264,16 @@ def activate(session_id_pos, session_id_opt):
 @click.option('--where', 'filter_expr', default=None,
 			  help='Bulk selector: KEY=VALUE, KEY~=PREFIX, or KEY!=VALUE (#125).')
 @click.option('--all', 'all_flag', is_flag=True, help='Apply to every session (#125).')
+@click.option('-y', '--yes', 'force', is_flag=True, help='Skip confirmation prompt.')
 @click.option('--dry-run', is_flag=True, help='Print what would be renamed without doing it.')
 @click.option('-q', '--quiet', is_flag=True, help='Suppress confirmation message')
-def name(title, session_id, filter_expr, all_flag, dry_run, quiet):
+def name(title, session_id, filter_expr, all_flag, force, dry_run, quiet):
 	"""Rename session (or many via --where / --all)."""
 	if not title.strip():
 		raise click.ClickException("Name cannot be empty")
 	bulk = bool(filter_expr or all_flag)
+	if not confirm_or_skip(f"rename session to {title!r}", dry_run=dry_run, yes=force):
+		return
 	if not bulk:
 		renamed_id = None
 		async def _run(connection):
@@ -352,9 +355,13 @@ def restart(session_id, quiet, force):
 @click.option('--cols', type=click.IntRange(min=1), required=True)
 @click.option('--rows', type=click.IntRange(min=1), required=True)
 @click.option('-s', '--session', 'session_id', default=None)
+@click.option('-y', '--yes', 'force', is_flag=True, help='Skip confirmation prompt.')
+@click.option('--dry-run', is_flag=True, help='Print what would be resized without doing it.')
 @click.option('-q', '--quiet', is_flag=True, help='Suppress confirmation message')
-def resize(cols, rows, session_id, quiet):
+def resize(cols, rows, session_id, force, dry_run, quiet):
 	"""Resize session pane."""
+	if not confirm_or_skip(f"resize session to {cols}x{rows}", dry_run=dry_run, yes=force):
+		return
 	async def _run(connection):
 		session = await resolve_session(connection, session_id)
 		size = iterm2.util.Size(cols, rows)
