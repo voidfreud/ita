@@ -1,10 +1,10 @@
 # src/_orientation.py
-"""Orientation commands: status, focus, version, use."""
+"""Orientation commands: status, focus, version."""
 import json
 import click
 import iterm2
-from _core import cli, run_iterm, strip, get_sticky, set_sticky, clear_sticky, __version__, \
-    add_protected, remove_protected, get_protected, resolve_session
+from _core import cli, run_iterm, strip, __version__, \
+	add_protected, remove_protected, get_protected, resolve_session
 
 
 @cli.command()
@@ -12,10 +12,9 @@ from _core import cli, run_iterm, strip, get_sticky, set_sticky, clear_sticky, _
 @click.option('--ids-only', is_flag=True, help='Print only session IDs (one per line).')
 @click.option('--where', 'filter_expr', default=None, help='Filter sessions by property (e.g., session_name=main).')
 def status(use_json, ids_only, filter_expr):
-	"""List all sessions: id | name | process | path | current*"""
+	"""List all sessions: name | short-id | process | path"""
 	async def _run(connection):
 		app = await iterm2.async_get_app(connection)
-		current = get_sticky()
 		sessions = []
 		for window in app.windows:
 			for tab in window.tabs:
@@ -25,7 +24,6 @@ def status(use_json, ids_only, filter_expr):
 						'session_name': strip(session.name or ''),
 						'process': strip(await session.async_get_variable('jobName') or ''),
 						'path': strip(await session.async_get_variable('path') or ''),
-						'current': session.session_id == current,
 						'window_id': window.window_id,
 						'tab_id': tab.tab_id,
 					})
@@ -49,13 +47,14 @@ def status(use_json, ids_only, filter_expr):
 		click.echo(json.dumps(sessions, indent=2, ensure_ascii=False))
 		return
 
-	# Full UUIDs (36 chars) so agents can copy the ID straight into `-s`.
+	# Name-first format: NAME  SHORT-ID  PROCESS  PATH
+	header = f"{'NAME':<15} {'SESSION-ID':<10} {'PROCESS':<9} PATH"
+	click.echo(header)
 	for s in sessions:
-		marker = '*' if s['current'] else ' '
-		sid = s['session_id']
-		name = s['session_name'][:20].ljust(20)
-		proc = s['process'][:10].ljust(10)
-		click.echo(f"{marker} {sid}  {name}  {proc}  {s['path']}")
+		name = (s['session_name'] or '')[:15].ljust(15)
+		short_id = s['session_id'][:8]
+		proc = (s['process'] or '')[:9].ljust(9)
+		click.echo(f"{name} {short_id:<10} {proc} {s['path']}")
 
 
 @cli.command()
@@ -105,47 +104,8 @@ def version():
 
 
 @cli.command()
-@click.argument('session_id', required=False)
-@click.option('--clear', is_flag=True, help='Clear sticky target')
-def use(session_id, clear):
-	"""Set or clear sticky session target."""
-	if clear:
-		clear_sticky()
-		click.echo("Sticky target cleared.")
-		return
-	if not session_id:
-		current = get_sticky()
-		click.echo(f"Current target: {current or '(none)'}")
-		return
-	# Validate the session exists before pinning it
-	async def _verify(connection):
-		app = await iterm2.async_get_app(connection)
-		s = app.get_session_by_id(session_id)
-		if s:
-			return s.session_id
-		# Try prefix match across all sessions
-		sid_lower = session_id.lower()
-		matches = []
-		for window in app.terminal_windows:
-			for tab in window.tabs:
-				for sess in tab.sessions:
-					if sess.session_id.lower().startswith(sid_lower):
-						matches.append(sess.session_id)
-		if len(matches) == 1:
-			return matches[0]
-		if len(matches) > 1:
-			raise click.ClickException(
-				f"Session prefix {session_id!r} is ambiguous: matches {len(matches)} sessions.")
-		raise click.ClickException(
-			f"Session {session_id!r} not found. Run 'ita status' to list sessions.")
-	resolved = run_iterm(_verify)
-	set_sticky(resolved)
-	click.echo(f"Target set: {resolved}")
-
-
-@cli.command()
 @click.option('-s', '--session', 'session_id', default=None,
-	help='Session to protect (default: sticky or focused).')
+	help='Session to protect.')
 @click.option('--list', 'list_only', is_flag=True, help='List all protected sessions.')
 def protect(session_id, list_only):
 	"""Mark a session as protected — write commands (run, send, key, inject, close)
@@ -169,7 +129,7 @@ def protect(session_id, list_only):
 
 @cli.command()
 @click.option('-s', '--session', 'session_id', default=None,
-	help='Session to unprotect (default: sticky or focused).')
+	help='Session to unprotect.')
 def unprotect(session_id):
 	"""Remove protection from a session (reverse of `ita protect`)."""
 	async def _resolve(connection):

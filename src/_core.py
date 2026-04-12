@@ -1,7 +1,7 @@
 # src/_core.py
 """
 Core helpers shared by all ita modules.
-run_iterm(), resolve_session(), strip(), sticky context.
+run_iterm(), resolve_session(), strip().
 """
 import asyncio
 import json
@@ -12,25 +12,6 @@ from typing import Any
 
 import click
 import iterm2
-
-# ── Sticky context ─────────────────────────────────────────────────────────
-
-CONTEXT_FILE = Path.home() / ".ita_context"
-
-def get_sticky() -> str | None:
-    """Return the sticky session ID, or None."""
-    if CONTEXT_FILE.exists():
-        v = CONTEXT_FILE.read_text().strip()
-        return v if v else None
-    return None
-
-def set_sticky(session_id: str) -> None:
-    """Persist session_id as sticky target."""
-    CONTEXT_FILE.write_text(session_id)
-
-def clear_sticky() -> None:
-    """Remove sticky target."""
-    CONTEXT_FILE.unlink(missing_ok=True)
 
 # ── Protected sessions ──────────────────────────────────────────────────────
 
@@ -157,45 +138,52 @@ def run_iterm(coro: Callable[..., Awaitable[Any]]) -> Any:
 
 # ── Session resolver ────────────────────────────────────────────────────────
 
+def _all_sessions(app):
+	"""Return a flat list of every session across all windows/tabs."""
+	return [s for w in app.terminal_windows for t in w.tabs for s in t.sessions]
+
+
 async def resolve_session(connection, session_id: str | None = None) -> 'iterm2.Session':
-    """
-    Resolve target session.
-    Precedence: explicit session_id > sticky > currently focused.
-    Raises ClickException if nothing found.
-    """
-    app = await iterm2.async_get_app(connection)
-    sid = session_id or get_sticky()
-    if sid:
-        session = app.get_session_by_id(sid)
-        if session:
-            return session
-        # Prefix match fallback — makes the 8-char IDs from `ita status` usable.
-        sid_lower = sid.lower()
-        matches = []
-        for window in app.terminal_windows:
-            for tab in window.tabs:
-                for s in tab.sessions:
-                    if s.session_id.lower().startswith(sid_lower):
-                        matches.append(s)
-        if len(matches) == 1:
-            return matches[0]
-        if len(matches) > 1:
-            raise click.ClickException(
-                f"Session prefix {sid!r} is ambiguous: matches {len(matches)} sessions.")
-        raise click.ClickException(
-            f"Session {sid!r} not found. Run 'ita status' to list sessions."
-        )
-    # Fall back to currently focused session
-    window = app.current_terminal_window
-    if window and window.current_tab and window.current_tab.current_session:
-        return window.current_tab.current_session
-    raise click.ClickException(
-        "No session available. Run 'ita new' to create one."
-    )
+	"""
+	Resolve target session by exact ID, name, or 8+ char UUID prefix.
+	Raises ClickException if no session_id given or nothing found.
+	"""
+	if not session_id:
+		raise click.ClickException(
+			"no session specified. Use -s NAME or -s UUID-PREFIX.\n"
+			"Run 'ita status' to list available sessions.")
+	app = await iterm2.async_get_app(connection)
+	# 1. Exact session ID match
+	session = app.get_session_by_id(session_id)
+	if session:
+		return session
+	# 2. Exact name match
+	all_sess = _all_sessions(app)
+	name_matches = [s for s in all_sess if s.name == session_id]
+	if len(name_matches) == 1:
+		return name_matches[0]
+	if len(name_matches) > 1:
+		ids = ', '.join(s.session_id[:8] for s in name_matches)
+		raise click.ClickException(
+			f"session name {session_id!r} is ambiguous — matches: {ids}.\n"
+			f"Use -s UUID-PREFIX to disambiguate.")
+	# 3. 8+ char UUID prefix match (case-insensitive)
+	if len(session_id) >= 8:
+		sid_lower = session_id.lower()
+		prefix_matches = [s for s in all_sess if s.session_id.lower().startswith(sid_lower)]
+		if len(prefix_matches) == 1:
+			return prefix_matches[0]
+		if len(prefix_matches) > 1:
+			ids = ', '.join(s.session_id[:8] for s in prefix_matches)
+			raise click.ClickException(
+				f"session prefix {session_id!r} is ambiguous — matches: {ids}.")
+	raise click.ClickException(
+		f"session not found: {session_id}. Run 'ita status' to list sessions."
+	)
 
 # ── CLI root ────────────────────────────────────────────────────────────────
 
-__version__ = '0.1.0'
+__version__ = '0.2.0'
 
 @click.group()
 @click.version_option(version=__version__)

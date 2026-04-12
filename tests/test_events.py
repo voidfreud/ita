@@ -43,7 +43,7 @@ def test_on_session_new_returns_clean_uuid():
 	proc = _popen('on', 'session-new', '-t', '10')
 	time.sleep(0.3)
 	r_new = ita('new')
-	new_sid = r_new.stdout.strip()
+	new_sid = r_new.stdout.strip().split('\t')[-1]
 	stdout, _ = proc.communicate(timeout=15)
 	assert proc.returncode == 0
 	out = stdout.strip()
@@ -59,7 +59,7 @@ def test_on_session_end_fires():
 	"""Use a fresh session independent of the fixture so closing it doesn't break teardown."""
 	r_new = ita('new')
 	assert r_new.returncode == 0
-	fresh_sid = r_new.stdout.strip()
+	fresh_sid = r_new.stdout.strip().split('\t')[-1]
 	proc = _popen('on', 'session-end', '-s', fresh_sid, '-t', '10')
 	time.sleep(0.3)
 	ita('close', '-s', fresh_sid)

@@ -4,7 +4,7 @@ from pathlib import Path
 import re
 import click
 import iterm2
-from _core import cli, run_iterm, resolve_session, strip, set_sticky, clear_sticky, get_sticky, read_session_lines, check_protected
+from _core import cli, run_iterm, resolve_session, strip, read_session_lines, check_protected, _all_sessions
 
 _SENTINEL_RE = re.compile(r'^: ita-[0-9a-f]+;')
 
@@ -12,31 +12,52 @@ _SENTINEL_RE = re.compile(r'^: ita-[0-9a-f]+;')
 @cli.command()
 @click.option('--window', 'new_window', is_flag=True, help='Create new window instead of tab')
 @click.option('--profile', default=None, help='Profile name')
-def new(new_window, profile):
-    """Create new tab (or window). Sets sticky target. Returns session ID."""
-    async def _run(connection):
-        app = await iterm2.async_get_app(connection)
-        try:
-            if new_window:
-                window = await iterm2.Window.async_create(connection, profile=profile)
-                session = window.current_tab.current_session
-            else:
-                window = app.current_terminal_window
-                if not window:
-                    window = await iterm2.Window.async_create(connection, profile=profile)
-                    session = window.current_tab.current_session
-                else:
-                    tab = await window.async_create_tab(profile=profile)
-                    session = tab.current_session
-        except Exception as e:
-            if 'INVALID_PROFILE_NAME' in str(e):
-                raise click.ClickException(f"Profile not found: {profile!r}") from e
-            raise
-        return session.session_id
+@click.option('--name', 'session_name', default=None, help='Name for the new session')
+@click.option('--reuse', is_flag=True, help='If --name exists, return existing session instead of error')
+def new(new_window, profile, session_name, reuse):
+	"""Create new tab (or window). Returns name and session ID."""
+	async def _run(connection):
+		app = await iterm2.async_get_app(connection)
+		all_sess = _all_sessions(app)
+		existing_names = {s.name for s in all_sess if s.name}
+		# If --name given, check uniqueness / reuse
+		if session_name:
+			for s in all_sess:
+				if s.name == session_name:
+					if reuse:
+						return s.name, s.session_id
+					raise click.ClickException(
+						f"session name {session_name!r} already exists. "
+						f"Use --reuse to return the existing session.")
+		try:
+			if new_window:
+				window = await iterm2.Window.async_create(connection, profile=profile)
+				session = window.current_tab.current_session
+			else:
+				window = app.current_terminal_window
+				if not window:
+					window = await iterm2.Window.async_create(connection, profile=profile)
+					session = window.current_tab.current_session
+				else:
+					tab = await window.async_create_tab(profile=profile)
+					session = tab.current_session
+		except Exception as e:
+			if 'INVALID_PROFILE_NAME' in str(e):
+				raise click.ClickException(f"Profile not found: {profile!r}") from e
+			raise
+		# Set session name
+		name = session_name
+		if not name:
+			# Auto-name: s1, s2, s3, ...
+			i = 1
+			while f's{i}' in existing_names:
+				i += 1
+			name = f's{i}'
+		await session.async_set_name(name)
+		return name, session.session_id
 
-    sid = run_iterm(_run)
-    set_sticky(sid)
-    click.echo(sid)
+	name, sid = run_iterm(_run)
+	click.echo(f"{name}\t{sid}")
 
 
 @cli.command()
@@ -45,7 +66,7 @@ def new(new_window, profile):
 @click.option('--dry-run', is_flag=True, help='Print what would be closed without doing it')
 @click.option('--force', is_flag=True, help='Override protected-session guard.')
 def close(session_id, quiet, dry_run, force):
-    """Close session. Clears sticky if it was the target."""
+    """Close session."""
     if session_id is not None and not session_id.strip():
         raise click.ClickException("--session cannot be empty")
 
@@ -66,8 +87,6 @@ def close(session_id, quiet, dry_run, force):
             click.echo(f"Closed: {closed_id}", err=True)
         else:
             click.echo(closed_id)
-    if closed_id == get_sticky() and not dry_run:
-        clear_sticky()
 
 
 @cli.command()
@@ -132,8 +151,6 @@ def restart(session_id, quiet):
 
     new_sid = run_iterm(_run)
     if new_sid:
-        if old_id == get_sticky():
-            set_sticky(new_sid)
         if not quiet:
             click.echo(f"Restarted: {new_sid}")
         else:

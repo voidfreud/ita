@@ -2,7 +2,7 @@
 """Pane commands: split, navigate, move, swap."""
 import click
 import iterm2
-from _core import cli, run_iterm, resolve_session, set_sticky
+from _core import cli, run_iterm, resolve_session
 
 DIRECTION_MAP = {
 	'right': iterm2.NavigationDirection.RIGHT,
@@ -18,7 +18,7 @@ DIRECTION_MAP = {
 @click.option('--profile', default=None)
 @click.option('-s', '--session', 'session_id', default=None)
 def split(split_dir, profile, session_id):
-	"""Split current pane. New pane becomes sticky target."""
+	"""Split current pane. Returns new session ID."""
 	vertical = split_dir == 'vertical'
 	async def _run(connection):
 		session = await resolve_session(connection, session_id)
@@ -30,7 +30,6 @@ def split(split_dir, profile, session_id):
 			raise
 		return new_session.session_id
 	sid = run_iterm(_run)
-	set_sticky(sid)
 	click.echo(sid)
 
 
@@ -38,7 +37,7 @@ def split(split_dir, profile, session_id):
 @click.argument('direction', type=click.Choice(['right', 'left', 'above', 'below']))
 @click.option('-s', '--session', 'session_id', default=None)
 def pane(direction, session_id):
-	"""Navigate to adjacent split pane. Updates sticky target."""
+	"""Navigate to adjacent split pane. Returns new session ID."""
 	async def _run(connection):
 		session = await resolve_session(connection, session_id)
 		original_id = session.session_id
@@ -48,14 +47,13 @@ def pane(direction, session_id):
 		new_session = tab.current_session
 		if not new_session or new_session.session_id == original_id:
 			raise click.ClickException(f"No pane to the {direction} of current session")
-		set_sticky(new_session.session_id)
 		return new_session.session_id
 	sid = run_iterm(_run)
 	click.echo(sid)
 
 
 @cli.command()
-@click.option('-s', '--session', 'session_id', default=None, help='Session to move (default: sticky/focused)')
+@click.option('-s', '--session', 'session_id', default=None, help='Session to move.')
 @click.option('-w', '--window', 'window_id', required=True, help='Destination window ID')
 @click.option('--vertical', is_flag=True)
 @click.option('--tab', 'tab_id', default=None, help='Target tab in destination window')

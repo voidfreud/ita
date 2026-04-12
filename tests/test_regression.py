@@ -72,7 +72,7 @@ def test_r97_session_new_uuid_no_quotes():
 	)
 	time.sleep(0.3)
 	r_new = ita('new')
-	new_sid = r_new.stdout.strip()
+	new_sid = r_new.stdout.strip().split('\t')[-1]
 	proc.wait(timeout=15)
 	out = proc.stdout.strip()
 	assert out, "#97: on session-new returned empty"

@@ -20,41 +20,6 @@ def test_strip_empty_string():
     assert strip("") == ""
 
 
-def test_get_sticky_missing(tmp_path, monkeypatch):
-    import _core
-    monkeypatch.setattr(_core, 'CONTEXT_FILE', tmp_path / ".ita_context")
-    assert _core.get_sticky() is None
-
-
-def test_set_and_get_sticky(tmp_path, monkeypatch):
-    import _core
-    monkeypatch.setattr(_core, 'CONTEXT_FILE', tmp_path / ".ita_context")
-    _core.set_sticky("SESSION-ABC")
-    assert _core.get_sticky() == "SESSION-ABC"
-
-
-def test_clear_sticky(tmp_path, monkeypatch):
-    import _core
-    monkeypatch.setattr(_core, 'CONTEXT_FILE', tmp_path / ".ita_context")
-    _core.set_sticky("SESSION-ABC")
-    _core.clear_sticky()
-    assert _core.get_sticky() is None
-
-
-def test_sticky_strips_whitespace(tmp_path, monkeypatch):
-    import _core
-    monkeypatch.setattr(_core, 'CONTEXT_FILE', tmp_path / ".ita_context")
-    (tmp_path / ".ita_context").write_text("  SESSION-ID  \n")
-    assert _core.get_sticky() == "SESSION-ID"
-
-
-def test_sticky_empty_file_returns_none(tmp_path, monkeypatch):
-    import _core
-    monkeypatch.setattr(_core, 'CONTEXT_FILE', tmp_path / ".ita_context")
-    (tmp_path / ".ita_context").write_text("   ")
-    assert _core.get_sticky() is None
-
-
 # ── Hypothesis property tests ─────────────────────────────────────────────────
 
 from hypothesis import given, settings, strategies as st
