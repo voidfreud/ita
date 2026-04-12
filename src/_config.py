@@ -342,25 +342,71 @@ def broadcast():
 @broadcast.command('on')
 @click.option('-s', '--session', 'session_id', default=None)
 @click.option('--window', 'window_id', default=None)
-def broadcast_on(session_id, window_id):
-    """Broadcast input to all panes in window."""
+@click.option('--replace', is_flag=True,
+              help='Replace all existing broadcast domains (old behavior). '
+                   'Default is to merge the new session into an existing domain.')
+def broadcast_on(session_id, window_id, replace):
+    """Broadcast input to all panes in window.
+
+    By default merges into existing broadcast domains rather than replacing them
+    (#103) — prevents silent data loss when adding a session to an active
+    broadcast group. Pass --replace for the old atomic-replace behavior."""
     async def _run(connection):
         app = await iterm2.async_get_app(connection)
+        await app.async_refresh_broadcast_domains()
+        existing = list(app.broadcast_domains) if not replace else []
+
         if session_id:
             session = await resolve_session(connection, session_id)
-            domain = iterm2.BroadcastDomain()
-            domain.add_session(session)
-            await iterm2.async_set_broadcast_domains(connection, [domain])
+            # If there's already a domain, extend the first one; else create new.
+            if existing:
+                target = existing[0]
+                target.add_session(session)
+                domains = existing
+            else:
+                d = iterm2.BroadcastDomain()
+                d.add_session(session)
+                domains = [d]
+            await iterm2.async_set_broadcast_domains(connection, domains)
             return
+
         w = app.get_window_by_id(window_id) if window_id else app.current_terminal_window
         if not w:
             return
-        domain = iterm2.BroadcastDomain()
+        new_domain = iterm2.BroadcastDomain()
         for tab in w.tabs:
             for session in tab.sessions:
-                domain.add_session(session)
-        await iterm2.async_set_broadcast_domains(connection, [domain])
+                new_domain.add_session(session)
+        await iterm2.async_set_broadcast_domains(connection, existing + [new_domain])
     run_iterm(_run)
+
+
+@broadcast.command('send')
+@click.argument('text')
+@click.option('--newline/--no-newline', default=True,
+              help='Append a newline so the shell executes (default: true).')
+def broadcast_send(text, newline):
+    """Send TEXT to every session in every active broadcast domain (#147).
+
+    iTerm2's broadcast-domain feature mirrors *keyboard* input, not API writes,
+    so `ita send` bypasses the domain. This command fills that gap by iterating
+    the current domains and calling async_send_text on each member."""
+    payload = text + ('\n' if newline else '')
+    async def _run(connection):
+        app = await iterm2.async_get_app(connection)
+        await app.async_refresh_broadcast_domains()
+        domains = app.broadcast_domains
+        if not domains:
+            raise click.ClickException(
+                "No active broadcast domains. Use `ita broadcast on` first.")
+        sent = []
+        for d in domains:
+            for s in d.sessions:
+                await s.async_send_text(payload)
+                sent.append(s.session_id)
+        return sent
+    sent = run_iterm(_run) or []
+    click.echo(f"Sent to {len(sent)} session(s).")
 
 
 @broadcast.command('off')
