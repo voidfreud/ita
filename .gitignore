@@ -1,0 +1,11 @@
+__pycache__/
+*.pyc
+.DS_Store
+.ita_context
+.worktrees/
+.serena/
+.hypothesis/
+ita-main/
+ita-main.zip
+.pytest_cache/
+.claude/
