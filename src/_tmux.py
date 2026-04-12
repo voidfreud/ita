@@ -27,6 +27,12 @@ def tmux_start(attach, session_id):
 	cmd = 'tmux -CC attach' if attach else 'tmux -CC'
 
 	async def _run(connection):
+		# Detect-and-reuse: if a tmux-CC connection already exists, surface it
+		# instead of stacking a duplicate (see #177).
+		existing = await iterm2.tmux.async_get_tmux_connections(connection)
+		if existing:
+			click.echo("Reusing existing tmux connection. Run 'ita tmux stop' first to start fresh.", err=True)
+			return [c.connection_id for c in existing]
 		session = await resolve_session(connection, session_id)
 		await session.async_send_text(cmd + '\n')
 		# Poll up to 5s for connection to appear (check every 0.5s)
@@ -39,6 +45,27 @@ def tmux_start(attach, session_id):
 		if not conns:
 			raise click.ClickException("tmux session failed to establish. Verify tmux is installed and the session is accessible.")
 		return [c.connection_id for c in conns]
+
+	for cid in (run_iterm(_run) or []):
+		click.echo(cid)
+
+
+@tmux.command('stop')
+def tmux_stop():
+	"""Cleanly detach all active tmux -CC connections (#177)."""
+	async def _run(connection):
+		conns = await iterm2.tmux.async_get_tmux_connections(connection)
+		if not conns:
+			click.echo("No active tmux connection.", err=True)
+			return []
+		closed = []
+		for c in conns:
+			try:
+				await c.async_send_command('detach-client')
+				closed.append(c.connection_id)
+			except Exception as e:
+				click.echo(f"Failed to detach {c.connection_id}: {e}", err=True)
+		return closed
 
 	for cid in (run_iterm(_run) or []):
 		click.echo(cid)
