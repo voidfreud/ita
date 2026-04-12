@@ -5,7 +5,9 @@ run_iterm(), resolve_session(), strip().
 """
 import asyncio
 import json
+import os
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 from collections.abc import Awaitable, Callable
 from typing import Any
@@ -51,6 +53,126 @@ def check_protected(session_id: str, force: bool = False) -> None:
             f"Session {session_id[:8]}… is protected (~/.ita_protected). "
             f"Use --force to override, or `ita unprotect -s {session_id[:8]}` to remove protection."
         )
+
+# ── Session write-lock (#109) ──────────────────────────────────────────────
+#
+# Lightweight per-session exclusive lock so two concurrent ita invocations
+# (e.g. parallel Claude agents) can't interleave writes on the same session.
+# Held only for the duration of a single write command; a crashed invocation
+# leaves behind a stale record that the next caller reclaims via a live-PID
+# probe (os.kill(pid, 0)). ~/.ita_writelock JSON shape:
+#     {session_id: {"pid": int, "at": iso8601}}
+
+WRITELOCK_FILE = Path.home() / ".ita_writelock"
+
+
+def _load_writelocks() -> dict:
+	if not WRITELOCK_FILE.exists():
+		return {}
+	try:
+		return json.loads(WRITELOCK_FILE.read_text() or '{}')
+	except (json.JSONDecodeError, OSError):
+		return {}  # corrupt → treat empty; a write will overwrite cleanly
+
+
+def _save_writelocks(data: dict) -> None:
+	if data:
+		WRITELOCK_FILE.write_text(json.dumps(data, indent=2) + '\n')
+	else:
+		WRITELOCK_FILE.unlink(missing_ok=True)
+
+
+def _pid_alive(pid: int) -> bool:
+	"""True if a process with `pid` is alive. ProcessLookupError → dead;
+	PermissionError means something's there but we can't signal it → alive."""
+	if pid <= 0:
+		return False
+	try:
+		os.kill(pid, 0)
+		return True
+	except ProcessLookupError:
+		return False
+	except PermissionError:
+		return True
+
+
+def acquire_writelock(session_id: str) -> bool:
+	"""Try to claim the write-lock. Returns False if another *live* PID
+	holds it; stale locks are silently reclaimed. Single-host only."""
+	data = _load_writelocks()
+	entry = data.get(session_id)
+	if entry and _pid_alive(int(entry.get('pid', 0))):
+		return False
+	data[session_id] = {
+		'pid': os.getpid(),
+		'at': datetime.now(timezone.utc).isoformat(timespec='seconds'),
+	}
+	_save_writelocks(data)
+	return True
+
+
+def release_writelock(session_id: str) -> None:
+	"""Release iff held by this process. No-op otherwise, so safe in finally."""
+	data = _load_writelocks()
+	entry = data.get(session_id)
+	if entry and int(entry.get('pid', 0)) == os.getpid():
+		data.pop(session_id, None)
+		_save_writelocks(data)
+
+
+def check_writelock(session_id: str, force: bool = False) -> None:
+	"""Raise ClickException if `session_id` is locked by another live PID.
+
+	Stale entries are NOT reclaimed here — acquire_writelock does that a
+	moment later. --force skips entirely (mirrors check_protected)."""
+	if force:
+		return
+	entry = _load_writelocks().get(session_id)
+	if not entry:
+		return
+	pid = int(entry.get('pid', 0))
+	if not _pid_alive(pid):
+		return  # stale — acquire_writelock will reclaim
+	raise click.ClickException(
+		f"Session {session_id[:8]}… is write-locked by pid {pid} "
+		f"(since {entry.get('at', '?')}). Use --force to override, "
+		f"or wait for the other ita invocation to finish."
+	)
+
+
+def get_writelocks() -> dict:
+	"""Current on-disk writelock map. Used by `ita lock --list`."""
+	return _load_writelocks()
+
+
+class session_writelock:
+	"""Context manager: check + acquire on enter, release on exit. Raises
+	ClickException if held by another live PID. --force bypasses entirely.
+	Exception-safe — release runs from __exit__ whether the body raised or
+	not, which is the whole point (a crashed write must not orphan a lock)."""
+	def __init__(self, session_id: str, force: bool = False):
+		self.session_id = session_id
+		self.force = force
+		self.held = False
+
+	def __enter__(self):
+		if self.force:
+			return self
+		check_writelock(self.session_id, force=False)
+		if not acquire_writelock(self.session_id):
+			# Race: between check and acquire, someone grabbed it.
+			raise click.ClickException(
+				f"Session {self.session_id[:8]}… was just write-locked by "
+				f"another ita invocation. Retry, or pass --force."
+			)
+		self.held = True
+		return self
+
+	def __exit__(self, exc_type, exc, tb):
+		if self.held:
+			release_writelock(self.session_id)
+		return False
+
 
 # ── Output helpers ─────────────────────────────────────────────────────────
 
