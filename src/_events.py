@@ -1,6 +1,7 @@
 # src/_events.py
 """Event monitoring and advanced commands: on group, coprocess, annotate, rpc."""
 import asyncio
+import json
 import re
 import click
 import iterm2
@@ -17,7 +18,8 @@ def on():
 @click.argument('pattern')
 @click.option('-t', '--timeout', default=60, type=int)
 @click.option('-s', '--session', 'session_id', default=None)
-def on_output(pattern, timeout, session_id):
+@click.option('--json', 'use_json', is_flag=True, help='Emit {"line": ...} instead of plain text.')
+def on_output(pattern, timeout, session_id, use_json):
 	"""Block until PATTERN appears in session output. Returns matching line."""
 	try:
 		re.compile(pattern)
@@ -43,13 +45,18 @@ def on_output(pattern, timeout, session_id):
 			return await asyncio.wait_for(_wait(), timeout=timeout)
 		except asyncio.TimeoutError:
 			raise click.ClickException(f"Timeout: pattern {pattern!r} not found in {timeout}s")
-	click.echo(run_iterm(_run))
+	result = run_iterm(_run)
+	if use_json:
+		click.echo(json.dumps({'line': result}, ensure_ascii=False))
+	else:
+		click.echo(result)
 
 
 @on.command('prompt')
 @click.option('-t', '--timeout', default=60, type=int)
 @click.option('-s', '--session', 'session_id', default=None)
-def on_prompt(timeout, session_id):
+@click.option('--json', 'use_json', is_flag=True, help='Emit {"line": ...} instead of plain text.')
+def on_prompt(timeout, session_id, use_json):
 	"""Block until next shell prompt appears."""
 	async def _run(connection):
 		session = await resolve_session(connection, session_id)
@@ -73,7 +80,10 @@ def on_prompt(timeout, session_id):
 					continue
 	result = run_iterm(_run)
 	if result:
-		click.echo(result)
+		if use_json:
+			click.echo(json.dumps({'line': result}, ensure_ascii=False))
+		else:
+			click.echo(result)
 
 
 _UUID_RE = re.compile(r'[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}')
@@ -110,7 +120,8 @@ def _extract_uuid(payload) -> str | None:
 @click.argument('pattern')
 @click.option('-t', '--timeout', default=60, type=int)
 @click.option('-s', '--session', 'session_id', default=None)
-def on_keystroke(pattern, timeout, session_id):
+@click.option('--json', 'use_json', is_flag=True, help='Emit {"chars": ...} instead of plain text.')
+def on_keystroke(pattern, timeout, session_id, use_json):
 	"""Block until a keystroke matching PATTERN (regex) is pressed. Prints the matched characters."""
 	try:
 		re.compile(pattern)
@@ -135,12 +146,17 @@ def on_keystroke(pattern, timeout, session_id):
 				chars = getattr(ks, 'characters', '') or ''
 				if rx.search(chars):
 					return chars
-	click.echo(run_iterm(_run))
+	result = run_iterm(_run)
+	if use_json:
+		click.echo(json.dumps({'chars': result}, ensure_ascii=False))
+	else:
+		click.echo(result)
 
 
 @on.command('session-new')
 @click.option('-t', '--timeout', default=30, type=int)
-def on_session_new(timeout):
+@click.option('--json', 'use_json', is_flag=True, help='Emit {"session_id": ..., "name": ...} instead of plain text.')
+def on_session_new(timeout, use_json):
 	"""Block until a new session is created (any session). Emits `UUID\\tNAME`
 	when the session name is resolvable, otherwise just `UUID` (#131)."""
 	async def _run(connection):
@@ -162,15 +178,20 @@ def on_session_new(timeout):
 				name = strip(s.name or '')
 		except Exception:
 			pass
-		return f"{uuid}\t{name}" if name else uuid
-	click.echo(run_iterm(_run))
+		return (uuid, name)
+	uuid, name = run_iterm(_run)
+	if use_json:
+		click.echo(json.dumps({'session_id': uuid, 'name': name}, ensure_ascii=False))
+	else:
+		click.echo(f"{uuid}\t{name}" if name else uuid)
 
 
 @on.command('session-end')
 @click.option('-t', '--timeout', default=60, type=int)
 @click.option('-s', '--session', 'session_id', default=None,
 			  help='Filter to a specific session (default: any session ending).')
-def on_session_end(timeout, session_id):
+@click.option('--json', 'use_json', is_flag=True, help='Emit {"session_id": ..., "name": ...} instead of plain text.')
+def on_session_end(timeout, session_id, use_json):
 	"""Block until a session terminates. Without -s, fires on ANY session
 	ending (#131). Emits `UUID\\tNAME` when the name was known before
 	termination, otherwise just `UUID`."""
@@ -197,7 +218,7 @@ def on_session_end(timeout, session_id):
 		try:
 			sid = await asyncio.wait_for(q.get(), timeout=timeout)
 			name = name_map.get(sid, '')
-			return f"{sid}\t{name}" if name else sid
+			return (sid, name)
 		except asyncio.TimeoutError:
 			raise click.ClickException(f"Timed out waiting for session termination after {timeout}s")
 		finally:
@@ -205,12 +226,17 @@ def on_session_end(timeout, session_id):
 				await iterm2.notifications.async_unsubscribe(connection, token)
 			except Exception:
 				pass
-	click.echo(run_iterm(_run))
+	sid, name = run_iterm(_run)
+	if use_json:
+		click.echo(json.dumps({'session_id': sid, 'name': name}, ensure_ascii=False))
+	else:
+		click.echo(f"{sid}\t{name}" if name else sid)
 
 
 @on.command('focus')
 @click.option('-t', '--timeout', default=30, type=int)
-def on_focus(timeout):
+@click.option('--json', 'use_json', is_flag=True, help='Emit {"event": ...} instead of plain text.')
+def on_focus(timeout, use_json):
 	"""Block until keyboard focus changes."""
 	async def _run(connection):
 		async with iterm2.FocusMonitor(connection) as m:
@@ -219,12 +245,17 @@ def on_focus(timeout):
 				return str(update)
 			except asyncio.TimeoutError:
 				raise click.ClickException(f"Timed out waiting for focus change after {timeout}s")
-	click.echo(run_iterm(_run))
+	result = run_iterm(_run)
+	if use_json:
+		click.echo(json.dumps({'event': result}, ensure_ascii=False))
+	else:
+		click.echo(result)
 
 
 @on.command('layout')
 @click.option('-t', '--timeout', default=30, type=int)
-def on_layout(timeout):
+@click.option('--json', 'use_json', is_flag=True, help='Emit {"event": ...} instead of plain text.')
+def on_layout(timeout, use_json):
 	"""Block until window/tab/pane layout changes."""
 	async def _run(connection):
 		q = asyncio.Queue()
@@ -242,7 +273,11 @@ def on_layout(timeout):
 				await iterm2.notifications.async_unsubscribe(connection, token)
 			except Exception:
 				pass
-	click.echo(run_iterm(_run))
+	result = run_iterm(_run)
+	if use_json:
+		click.echo(json.dumps({'event': result}, ensure_ascii=False))
+	else:
+		click.echo(result)
 
 
 # ── Advanced ───────────────────────────────────────────────────────────────

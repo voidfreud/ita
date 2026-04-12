@@ -67,13 +67,16 @@ async def _stream_session(session, json_stream: bool, prefix: str = '', name: st
 @click.option('--all', 'watch_all', is_flag=True, help='Stream all sessions simultaneously.')
 @click.option('--json-stream', is_flag=True, default=False,
 	help='Emit one JSON object per frame: {session, session_id, lines[], timestamp_ms}.')
-def watch(session_ids, timeout, watch_all, json_stream):
+@click.option('--json', 'use_json', is_flag=True, default=False,
+	help='Alias for --json-stream.')
+def watch(session_ids, timeout, watch_all, json_stream, use_json):
 	"""Stream screen updates until prompt. Only new/added lines emitted per frame.
 
 	--all streams every session in parallel. Pass -s/--session multiple times
 	to stream a subset. --json-stream switches to machine-readable output.
 	-t/--timeout caps the run time in seconds.
 	"""
+	json_stream = json_stream or use_json
 	def _label(session) -> str:
 		"""Short display label: session name if available, else short id."""
 		nm = strip(getattr(session, 'name', '') or '').strip()

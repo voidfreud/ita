@@ -14,6 +14,7 @@ import click
 from _core import (
 	cli, run_iterm, resolve_session,
 	acquire_writelock, release_writelock, get_writelocks, _pid_alive,
+	confirm_or_skip, success_echo,
 )
 
 
@@ -53,8 +54,13 @@ def lock(session_id, list_only):
 @cli.command()
 @click.option('-s', '--session', 'session_id', default=None,
 	help='Session to unlock.')
-def unlock(session_id):
+@click.option('-y', '--yes', 'force', is_flag=True, help='Skip confirmation prompt.')
+@click.option('--dry-run', is_flag=True, help='Print what would be unlocked without doing it.')
+@click.option('-q', '--quiet', is_flag=True, help='Suppress confirmation message.')
+def unlock(session_id, force, dry_run, quiet):
 	"""Release a persistent write-lock (reverse of `ita lock`)."""
+	if not confirm_or_skip("release write-lock", dry_run=dry_run, yes=force):
+		return
 	async def _resolve(connection):
 		session = await resolve_session(connection, session_id)
 		return session.session_id
@@ -82,4 +88,4 @@ def unlock(session_id):
 			f"end that process."
 		)
 	release_writelock(sid)
-	click.echo(f"Unlocked: {sid}")
+	success_echo(f"Unlocked: {sid}", quiet)
