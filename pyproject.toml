@@ -1,0 +1,11 @@
+[project]
+name = "ita"
+version = "0.2.1"
+requires-python = ">=3.11"
+
+[project.optional-dependencies]
+dev = ["pytest", "hypothesis"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+# Run with: uv run --with pytest --with hypothesis --with click --with iterm2 pytest tests/
