@@ -40,6 +40,7 @@ markers = [
 	"state: idempotency and persistence across invocations",
 	"known_broken: documents an unfixed bug; expected to fail",
 	"xfail_flaky: racy/async — filed as a bug; do not fix in test",
+	"fault_injection: in-process fault scenarios; no live iTerm2 required",
 ]
 
 [tool.mutmut]
