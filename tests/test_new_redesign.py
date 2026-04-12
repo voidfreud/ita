@@ -164,7 +164,7 @@ def test_cwd_quotes_single_quotes(monkeypatch):
 	r = _invoke(['--name', 'b', '--cwd', "/tmp/a'b"])
 	assert r.exit_code == 0, r.output
 	calls = [c.args[0] for c in window._created.async_send_text.await_args_list]
-	assert any("'\\''" in c for c in calls)
+	assert any('\'"\'"\'' in c for c in calls)
 
 
 def test_run_command(monkeypatch):

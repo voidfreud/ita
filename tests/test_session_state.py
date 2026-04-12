@@ -1,10 +1,9 @@
 """State tests for session lifecycle commands: new, close, activate, name, restart, resize, clear, capture."""
 import sys
-import time
 import pytest
 
 sys.path.insert(0, str(__import__('pathlib').Path(__file__).parent))
-from conftest import ita, ita_ok
+from conftest import ita
 
 pytestmark = [pytest.mark.integration, pytest.mark.state]
 

@@ -42,7 +42,6 @@ _BUILTIN_VAR_NAMES = frozenset(
 @click.option('-s', '--session', 'session_id', default=None)
 @click.option('--json', 'use_json', is_flag=True, help='Emit {name, value, scope} as JSON (#142).')
 def var_get(name, scope, session_id, use_json):
-	original_name = name
 	if not name.startswith('user.') and '.' not in name and name not in _BUILTIN_VAR_NAMES:
 		name = f'user.{name}'
 	async def _run(connection):

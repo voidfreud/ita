@@ -6,7 +6,7 @@ import click
 import iterm2
 from _core import (cli, run_iterm, resolve_session, strip, read_session_lines,
 	check_protected, _all_sessions, parse_filter, match_filter,
-	session_writelock, confirm_or_skip, success_echo, _SENTINEL_RE)
+	session_writelock, confirm_or_skip, _SENTINEL_RE)
 
 
 async def _fresh_name(session) -> str:
@@ -328,7 +328,6 @@ def restart(session_id, quiet, force):
 	async def _run(connection):
 		nonlocal old_id
 		import asyncio
-		app = await iterm2.async_get_app(connection)
 		session = await resolve_session(connection, session_id)
 		check_protected(session.session_id, force=force)
 		old_id = session.session_id

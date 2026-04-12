@@ -3,7 +3,6 @@
 Core helpers shared by all ita modules.
 run_iterm(), resolve_session(), strip().
 """
-import asyncio
 import fcntl
 import json
 import os

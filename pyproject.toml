@@ -2,6 +2,7 @@
 name = "ita"
 version = "0.3.0"
 requires-python = ">=3.11"
+dependencies = ["click", "iterm2"]
 
 # Note: bare _* sibling imports in ita.py require sys.path manipulation;
 # installed entry point works only when src/ is the package root (e.g. via pythonpath).
