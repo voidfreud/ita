@@ -133,6 +133,18 @@ Wiring is deferred to a follow-up PR; the contract is fixed now so tests can be 
 
 Coverage report (`pytest --cov=src --cov-report=xml`) is attached as a CI artifact.
 
+### 7.2 Flake cadence
+
+Run `python scripts/flake_check.py` **quarterly** (or after any test-stability incident).
+The script re-runs every test tagged `xfail_flaky` 20 times and buckets results:
+
+- **True race** (0 % < pass rate < 100 %) — keep the marker, open or update a tracking issue.
+- **Stable xfail** (0 % pass) — the test never passes; remove it or replace with a `known_broken` stub.
+- **False flake** (100 % pass) — the flakiness is gone; remove the `xfail_flaky` marker.
+
+Each tagged test must be triaged at least once per quarter.
+A CI job (`flaky-staleness` in `.github/workflows/ci.yml`) fails if any `xfail_flaky` test hasn't been touched in the last 6 months, enforcing the cadence automatically.
+
 ### 7.1 Budget table (perf lane)
 
 Budgets are enforced in `tests/test_perf.py`. A violation causes `rc != 0` in the `perf` lane.
