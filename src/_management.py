@@ -1,6 +1,7 @@
 # src/_management.py
 """Management commands: profile group, presets, theme."""
 import json
+import re
 import click
 import iterm2
 from _core import cli, run_iterm, resolve_session
@@ -119,7 +120,7 @@ def profile_set(property_name, value, session_id):
 			f"Unknown profile property: {property_name!r}. "
 			"See iterm2.LocalWriteOnlyProfile for valid setters.")
 
-	if property_name.endswith('_color'):
+	if re.search(r'_color(_light|_dark)?$', property_name) and not property_name.startswith('use_'):
 		try:
 			color_value = iterm2.Color(int(value[1:3], 16), int(value[3:5], 16), int(value[5:7], 16))
 		except (ValueError, IndexError):

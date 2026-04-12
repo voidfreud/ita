@@ -1,5 +1,6 @@
 # src/_broadcast.py
 """Broadcast commands: on, off, add, set, list."""
+import json
 import click
 import iterm2
 from _core import cli, run_iterm, resolve_session
