@@ -269,6 +269,41 @@ def emit(data: Any, use_json: bool = False) -> None:
         else:
             click.echo(data)
 
+
+# ── Global-flag helpers (#139, #143) ────────────────────────────────────────
+
+def success_echo(msg: str, quiet: bool = False) -> None:
+	"""Print a success confirmation unless --quiet is set.
+	Confirmations go to stderr so stdout stays clean for agents that parse it
+	(matches the existing close/name/clear conventions)."""
+	if not quiet:
+		click.echo(msg, err=True)
+
+
+def confirm_or_skip(msg: str, dry_run: bool = False, yes: bool = False) -> bool:
+	"""Gatekeeper for destructive operations.
+
+	Returns True if the caller should proceed with the mutation, False if
+	this was a --dry-run (already printed). Raises ClickException if a
+	confirmation prompt is needed but stdin is not a TTY.
+
+	Flag semantics:
+	  --dry-run  → print "Would: {msg}" to stdout, return False.
+	  --yes / -y → skip prompt, return True.
+	  neither    → prompt on TTY; on non-TTY, error with "use --yes".
+	"""
+	if dry_run:
+		click.echo(f"Would: {msg}")
+		return False
+	if yes:
+		return True
+	if not sys.stdin.isatty():
+		raise click.ClickException(
+			f"{msg}: confirmation required but stdin is not a TTY. "
+			f"Pass --yes/-y to proceed non-interactively."
+		)
+	return click.confirm(f"{msg}?", default=False)
+
 # ── iTerm2 runner ──────────────────────────────────────────────────────────
 
 def run_iterm(coro: Callable[..., Awaitable[Any]]) -> Any:
