@@ -7,9 +7,9 @@ import iterm2
 from _core import cli, run_iterm, resolve_session
 
 THEME_SHORTCUTS = {
-	'red': 'Red Alert',
-	# 'green' is handled specially: no built-in preset reads as green, so we
-	# paint a dark-green background directly via profile properties below.
+	# 'red' and 'green' are handled specially: no built-in iTerm2 preset
+	# reads as red/green, so we paint background/foreground directly via
+	# profile properties below.
 	'dark': 'Solarized Dark',
 	'light': 'Solarized Light',
 }
@@ -18,6 +18,11 @@ THEME_SHORTCUTS = {
 # for `ita theme green` since iTerm2 ships no green color preset.
 _GREEN_BG = (0.0, 0.20, 0.0)
 _GREEN_FG = (0.85, 0.95, 0.85)
+
+# Dark red alert background. 'Red Alert' is not a stock iTerm2 preset, so
+# `ita theme red` paints directly like green does.
+_RED_BG = (0.20, 0.0, 0.0)
+_RED_FG = (0.95, 0.85, 0.85)
 
 
 # ── Profiles ──────────────────────────────────────────────────────────────
@@ -164,22 +169,26 @@ def theme(preset, session_id, quiet, dry_run):
 	"""Apply color preset. Shortcuts: red, green, dark, light."""
 	preset_name = THEME_SHORTCUTS.get(preset, preset)
 	if dry_run:
+		if preset in ('red', 'green'):
+			click.echo(f"Would apply theme: {preset}")
+			return
 		click.echo(f"Would apply theme: {preset_name!r}")
 		return
-	# Special case: `green` has no matching built-in preset — paint directly.
-	if preset == 'green':
-		async def _run_green(connection):
+	# Special case: `red` and `green` have no matching built-in preset — paint directly.
+	if preset in ('red', 'green'):
+		bg_rgb, fg_rgb = (_RED_BG, _RED_FG) if preset == 'red' else (_GREEN_BG, _GREEN_FG)
+		async def _run_direct(connection):
 			session = await resolve_session(connection, session_id)
 			wop = iterm2.WriteOnlyProfile(session.session_id, connection)
 			bg = iterm2.Color(
-				int(_GREEN_BG[0] * 255), int(_GREEN_BG[1] * 255), int(_GREEN_BG[2] * 255))
+				int(bg_rgb[0] * 255), int(bg_rgb[1] * 255), int(bg_rgb[2] * 255))
 			fg = iterm2.Color(
-				int(_GREEN_FG[0] * 255), int(_GREEN_FG[1] * 255), int(_GREEN_FG[2] * 255))
+				int(fg_rgb[0] * 255), int(fg_rgb[1] * 255), int(fg_rgb[2] * 255))
 			await wop.async_set_background_color(bg)
 			await wop.async_set_foreground_color(fg)
-		run_iterm(_run_green)
+		run_iterm(_run_direct)
 		if not quiet:
-			click.echo(f"Applied theme: green")
+			click.echo(f"Applied theme: {preset}")
 		return
 
 	async def _run(connection):
