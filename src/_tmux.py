@@ -1,7 +1,6 @@
 # src/_tmux.py
 """tmux -CC integration commands."""
 import asyncio
-import sys
 import click
 import iterm2
 from _core import cli, run_iterm, resolve_session
@@ -31,11 +30,10 @@ def tmux_start(attach, session_id):
 		session = await resolve_session(connection, session_id)
 		await session.async_send_text(cmd + '\n')
 		# Poll up to 5s for connection to appear (check every 0.5s)
-		app = await iterm2.async_get_app(connection)
 		conns = []
 		for _ in range(10):
 			await asyncio.sleep(0.5)
-			conns = getattr(app, 'tmux_connections', []) or []
+			conns = await iterm2.tmux.async_get_tmux_connections(connection)
 			if conns:
 				break
 		if not conns:
@@ -51,13 +49,8 @@ def tmux_start(attach, session_id):
 def tmux_connections(output_json):
 	"""List active tmux -CC connections."""
 	async def _run(connection):
-		app = await iterm2.async_get_app(connection)
-		conns = set()
-		for window in app.windows:
-			for tab in window.tabs:
-				if tab.tmux_connection_id:
-					conns.add(tab.tmux_connection_id)
-		return sorted(conns)
+		conns = await iterm2.tmux.async_get_tmux_connections(connection)
+		return [c.connection_id for c in conns]
 	results = run_iterm(_run)
 	if not results:
 		if output_json:
@@ -109,8 +102,7 @@ def tmux_windows(output_json):
 def tmux_cmd(command):
 	"""Send tmux protocol command. Returns output."""
 	async def _run(connection):
-		app = await iterm2.async_get_app(connection)
-		conns = getattr(app, 'tmux_connections', []) or []
+		conns = await iterm2.tmux.async_get_tmux_connections(connection)
 		if not conns:
 			raise click.ClickException("No active tmux connection. Run 'ita tmux start' first.")
 		return await conns[0].async_send_command(command)
@@ -125,20 +117,13 @@ def tmux_cmd(command):
 def tmux_visible(window_ref, state):
 	"""Show (on) or hide (off) a tmux window's iTerm2 tab. Use @1, @2, etc."""
 	async def _run(connection):
-		app = await iterm2.async_get_app(connection)
 		# Normalise: tmux_window_id includes '@', so match with prefix
 		wid = window_ref if window_ref.startswith('@') else f'@{window_ref}'
-		for window in app.windows:
-			for tab in window.tabs:
-				if tab.tmux_window_id == wid:
-					if state == 'on':
-						await tab.async_activate()
-					else:
-						conns = getattr(app, 'tmux_connections', []) or []
-						if conns:
-							await conns[0].async_send_command('hide-client')
-							sys.stderr.write("Warning: session hidden, not closed\n")
-					return
+		conns = await iterm2.tmux.async_get_tmux_connections(connection)
+		if not conns:
+			raise click.ClickException("No active tmux connection. Run 'ita tmux start' first.")
+		visible = state == 'on'
+		await conns[0].async_set_tmux_window_visible(wid, visible)
 	run_iterm(_run)
 
 
@@ -147,8 +132,7 @@ def tmux_visible(window_ref, state):
 def tmux_detach(session_id):
 	"""Detach tmux client from session."""
 	async def _run(connection):
-		app = await iterm2.async_get_app(connection)
-		conns = getattr(app, 'tmux_connections', []) or []
+		conns = await iterm2.tmux.async_get_tmux_connections(connection)
 		if not conns:
 			raise click.ClickException("No active tmux connection.")
 		await conns[0].async_send_command('detach-client')
@@ -160,8 +144,7 @@ def tmux_detach(session_id):
 def tmux_kill_session(session_id):
 	"""Kill a tmux session."""
 	async def _run(connection):
-		app = await iterm2.async_get_app(connection)
-		conns = getattr(app, 'tmux_connections', []) or []
+		conns = await iterm2.tmux.async_get_tmux_connections(connection)
 		if not conns:
 			raise click.ClickException("No active tmux connection.")
 		cmd = f'kill-session -t {session_id}' if session_id else 'kill-session'

@@ -185,6 +185,7 @@ async def resolve_session(connection, session_id: str | None = None) -> 'iterm2.
 
 __version__ = '0.2.0'
 
+
 @click.group()
 @click.version_option(version=__version__)
 def cli():
