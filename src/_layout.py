@@ -3,7 +3,7 @@
 import json
 import click
 import iterm2
-from _core import cli, run_iterm, resolve_session
+from _core import cli, run_iterm, resolve_session, confirm_or_skip, success_echo
 
 DIRECTION_MAP = {
 	'right': iterm2.NavigationDirection.RIGHT,
@@ -113,11 +113,22 @@ def tab_new(window_id, profile):
 @tab.command('close')
 @click.argument('tab_id', required=False)
 @click.option('--current', '-c', is_flag=True, help='Close the currently active tab')
-def tab_close(tab_id, current):
+@click.option('-q', '--quiet', is_flag=True, help='Suppress confirmation (#139).')
+@click.option('--dry-run', is_flag=True, help='Print what would be closed (#143).')
+@click.option('--confirm', is_flag=True, help='Require confirmation (#143).')
+@click.option('-y', '--yes', is_flag=True, help='Skip confirmation prompt (#143).')
+def tab_close(tab_id, current, quiet, dry_run, confirm, yes):
 	"""Close a tab by ID, or use --current to close the active tab."""
 	if not tab_id and not current:
 		raise click.UsageError(
 			"Specify a tab ID or use --current to close the current tab")
+	target = tab_id or 'current tab'
+	msg = f"close tab {target}"
+	if dry_run:
+		click.echo(f"Would: {msg}")
+		return
+	if confirm and not confirm_or_skip(msg, dry_run=False, yes=yes):
+		return
 	async def _run(connection):
 		app = await iterm2.async_get_app(connection)
 		t = app.get_tab_by_id(tab_id) if tab_id else (
@@ -126,6 +137,7 @@ def tab_close(tab_id, current):
 			raise click.ClickException("Tab not found")
 		await t.async_close(force=True)
 	run_iterm(_run)
+	success_echo(f"Closed tab: {target}", quiet=quiet)
 
 
 @tab.command('activate')
@@ -270,11 +282,22 @@ def window_new(profile):
 @window.command('close')
 @click.argument('window_id', required=False)
 @click.option('--force', is_flag=True, help='Close current window without requiring WINDOW_ID')
-def window_close(window_id, force):
+@click.option('-q', '--quiet', is_flag=True, help='Suppress confirmation (#139).')
+@click.option('--dry-run', is_flag=True, help='Print what would be closed (#143).')
+@click.option('--confirm', is_flag=True, help='Require confirmation (#143).')
+@click.option('-y', '--yes', is_flag=True, help='Skip confirmation prompt (#143).')
+def window_close(window_id, force, quiet, dry_run, confirm, yes):
 	"""Close a window. WINDOW_ID is required unless --force is passed."""
 	if not window_id and not force:
 		raise click.UsageError(
 			"WINDOW_ID required (or pass --force to close the current window)")
+	target = window_id or 'current window'
+	msg = f"close window {target}"
+	if dry_run:
+		click.echo(f"Would: {msg}")
+		return
+	if confirm and not confirm_or_skip(msg, dry_run=False, yes=yes):
+		return
 	async def _run(connection):
 		app = await iterm2.async_get_app(connection)
 		w = app.get_window_by_id(window_id) if window_id else app.current_terminal_window
@@ -282,7 +305,8 @@ def window_close(window_id, force):
 			raise click.ClickException(
 				f"Window {window_id!r} not found" if window_id else "No current window")
 		session_count = sum(len(t.sessions) for t in w.tabs)
-		click.echo(f"Closing window with {len(w.tabs)} tab(s), {session_count} session(s).", err=True)
+		if not quiet:
+			click.echo(f"Closing window with {len(w.tabs)} tab(s), {session_count} session(s).", err=True)
 		await w.async_close(force=True)
 	run_iterm(_run)
 

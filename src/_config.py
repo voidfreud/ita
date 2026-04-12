@@ -3,7 +3,7 @@
 import json
 import click
 import iterm2
-from _core import cli, run_iterm, resolve_session
+from _core import cli, run_iterm, resolve_session, confirm_or_skip, success_echo
 
 
 # ── Variables ─────────────────────────────────────────────────────────────
@@ -40,7 +40,9 @@ _BUILTIN_VAR_NAMES = frozenset(
 @click.argument('name')
 @click.option('--scope', type=click.Choice(['session', 'tab', 'window', 'app']), default='session')
 @click.option('-s', '--session', 'session_id', default=None)
-def var_get(name, scope, session_id):
+@click.option('--json', 'use_json', is_flag=True, help='Emit {name, value, scope} as JSON (#142).')
+def var_get(name, scope, session_id, use_json):
+    original_name = name
     if not name.startswith('user.') and '.' not in name and name not in _BUILTIN_VAR_NAMES:
         name = f'user.{name}'
     async def _run(connection):
@@ -58,7 +60,10 @@ def var_get(name, scope, session_id):
             session = await resolve_session(connection, session_id)
             return await session.async_get_variable(name)
     result = run_iterm(_run)
-    click.echo(str(result or ''))
+    if use_json:
+        click.echo(json.dumps({'name': name, 'value': result, 'scope': scope}, default=str))
+    else:
+        click.echo(str(result or ''))
 
 
 @var.command('set')
@@ -66,13 +71,24 @@ def var_get(name, scope, session_id):
 @click.argument('value')
 @click.option('--scope', type=click.Choice(['session', 'tab', 'window', 'app']), default='session')
 @click.option('-s', '--session', 'session_id', default=None)
-def var_set(name, value, scope, session_id):
+@click.option('-q', '--quiet', is_flag=True, help='Suppress confirmation (#139).')
+@click.option('--dry-run', is_flag=True, help='Print what would be set without doing it (#143).')
+@click.option('--confirm', is_flag=True, help='Require confirmation before mutating (#143).')
+@click.option('-y', '--yes', is_flag=True, help='Skip confirmation prompt (#143).')
+@click.option('--json', 'use_json', is_flag=True, help='Emit {ok, name, scope} as JSON (#142).')
+def var_set(name, value, scope, session_id, quiet, dry_run, confirm, yes, use_json):
     """Set a variable. iTerm2 requires custom variables to use the 'user.' prefix;
     it is added automatically if not present."""
     if not name.strip():
         raise click.ClickException("Variable name is required")
     if not name.startswith('user.') and '.' not in name and name not in _BUILTIN_VAR_NAMES:
         name = f'user.{name}'
+    msg = f"set {scope} variable {name} = {value!r}"
+    if dry_run:
+        click.echo(f"Would: {msg}")
+        return
+    if confirm and not confirm_or_skip(msg, dry_run=False, yes=yes):
+        return
     async def _run(connection):
         app = await iterm2.async_get_app(connection)
         if scope == 'app':
@@ -88,6 +104,10 @@ def var_set(name, value, scope, session_id):
             session = await resolve_session(connection, session_id)
             await session.async_set_variable(name, value)
     run_iterm(_run)
+    if use_json:
+        click.echo(json.dumps({'ok': True, 'name': name, 'scope': scope}))
+    else:
+        success_echo(f"Set: {name} ({scope})", quiet=quiet)
 
 
 # Well-known iTerm2 built-in variable names per scope. iTerm2's Python API has no
@@ -277,24 +297,44 @@ def _coerce_pref_value(value: str):
 @pref.command('set')
 @click.argument('key')
 @click.argument('value')
-def pref_set(key, value):
+@click.option('-q', '--quiet', is_flag=True, help='Suppress confirmation (#139).')
+@click.option('--dry-run', is_flag=True, help='Print what would be set (#143).')
+@click.option('--confirm', is_flag=True, help='Require confirmation (#143).')
+@click.option('-y', '--yes', is_flag=True, help='Skip confirmation prompt (#143).')
+@click.option('--json', 'use_json', is_flag=True, help='Emit JSON result (#142).')
+def pref_set(key, value, quiet, dry_run, confirm, yes, use_json):
+    msg = f"set preference {key} = {value!r}"
+    if dry_run:
+        click.echo(f"Would: {msg}")
+        return
+    if confirm and not confirm_or_skip(msg, dry_run=False, yes=yes):
+        return
     async def _run(connection):
         pref_key = _resolve_pref_key(key)
         typed = _coerce_pref_value(value)
         await iterm2.async_set_preference(connection, pref_key, typed)
     run_iterm(_run)
+    if use_json:
+        click.echo(json.dumps({'ok': True, 'key': key}))
+    else:
+        success_echo(f"Set: {key}", quiet=quiet)
 
 
 @pref.command('list')
 @click.option('--filter', 'filter_text', default=None)
-def pref_list(filter_text):
+@click.option('--json', 'use_json', is_flag=True, help='Emit as JSON array (#142).')
+def pref_list(filter_text, use_json):
     async def _run(connection):
         keys = [k for k in dir(iterm2.PreferenceKey) if not k.startswith('_')]
         if filter_text:
             keys = [k for k in keys if filter_text.lower() in k.lower()]
         return keys
-    for k in run_iterm(_run):
-        click.echo(k)
+    keys = run_iterm(_run) or []
+    if use_json:
+        click.echo(json.dumps(keys))
+    else:
+        for k in keys:
+            click.echo(k)
 
 
 @pref.command('theme')
@@ -345,12 +385,23 @@ def broadcast():
 @click.option('--replace', is_flag=True,
               help='Replace all existing broadcast domains (old behavior). '
                    'Default is to merge the new session into an existing domain.')
-def broadcast_on(session_id, window_id, replace):
+@click.option('-q', '--quiet', is_flag=True, help='Suppress confirmation (#139).')
+@click.option('--dry-run', is_flag=True, help='Print what would be broadcast (#143).')
+@click.option('--confirm', is_flag=True, help='Require confirmation (#143).')
+@click.option('-y', '--yes', is_flag=True, help='Skip confirmation prompt (#143).')
+def broadcast_on(session_id, window_id, replace, quiet, dry_run, confirm, yes):
     """Broadcast input to all panes in window.
 
     By default merges into existing broadcast domains rather than replacing them
     (#103) — prevents silent data loss when adding a session to an active
     broadcast group. Pass --replace for the old atomic-replace behavior."""
+    target = session_id or window_id or 'current window'
+    msg = f"enable broadcast on {target}"
+    if dry_run:
+        click.echo(f"Would: {msg}")
+        return
+    if confirm and not confirm_or_skip(msg, dry_run=False, yes=yes):
+        return
     async def _run(connection):
         app = await iterm2.async_get_app(connection)
         await app.async_refresh_broadcast_domains()
@@ -379,6 +430,7 @@ def broadcast_on(session_id, window_id, replace):
                 new_domain.add_session(session)
         await iterm2.async_set_broadcast_domains(connection, existing + [new_domain])
     run_iterm(_run)
+    success_echo(f"Broadcast enabled: {target}", quiet=quiet)
 
 
 @broadcast.command('send')
@@ -410,11 +462,22 @@ def broadcast_send(text, newline):
 
 
 @broadcast.command('off')
-def broadcast_off():
+@click.option('-q', '--quiet', is_flag=True, help='Suppress confirmation (#139).')
+@click.option('--dry-run', is_flag=True, help='Print what would be disabled (#143).')
+@click.option('--confirm', is_flag=True, help='Require confirmation (#143).')
+@click.option('-y', '--yes', is_flag=True, help='Skip confirmation prompt (#143).')
+def broadcast_off(quiet, dry_run, confirm, yes):
     """Stop all broadcasting."""
+    msg = "disable all broadcast domains"
+    if dry_run:
+        click.echo(f"Would: {msg}")
+        return
+    if confirm and not confirm_or_skip(msg, dry_run=False, yes=yes):
+        return
     async def _run(connection):
         await iterm2.async_set_broadcast_domains(connection, [])
     run_iterm(_run)
+    success_echo("Broadcast disabled.", quiet=quiet)
 
 
 @broadcast.command('add')
