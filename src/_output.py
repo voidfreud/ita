@@ -62,9 +62,12 @@ async def _read_session(session, lines: int, scrollback: bool = False) -> dict:
 @click.option('--grep', 'grep_pattern', default=None, help='Filter lines matching regex.')
 @click.option('--after-row', 'after_row', default=None, type=int, help='Skip first N rows.')
 @click.option('--since-prompt', is_flag=True, default=False, help='Lines since last prompt marker.')
+@click.option('--tail', 'tail_n', default=None, type=click.IntRange(min=1),
+	help='Truncate the filtered result to the last N lines. Prepends '
+		 '[truncated: X lines] when output was cut. (#126)')
 @click.option('-s', '--session', 'session_id', default=None)
 def read(lines_arg, lines_opt, use_json, read_all, ids_only, scrollback,
-         grep_pattern, after_row, since_prompt, session_id):
+         grep_pattern, after_row, since_prompt, tail_n, session_id):
 	"""Read last N lines from session. Always clean."""
 	n = lines_opt or lines_arg or 20
 	grep_rx = None
@@ -86,6 +89,11 @@ def read(lines_arg, lines_opt, use_json, read_all, ids_only, scrollback,
 				if _is_prompt_line(result[i]):
 					result = result[i + 1:]
 					break
+		# #126: --tail truncates AFTER other filters so the notice reflects
+		# what the caller would otherwise have seen, and prepends a notice
+		# so agents know context was cut.
+		if tail_n is not None and len(result) > tail_n:
+			result = [f"[truncated: {len(result)} lines]"] + result[-tail_n:]
 		return result
 
 	if read_all:
