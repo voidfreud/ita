@@ -12,15 +12,20 @@ def _ts() -> int:
 	return int(asyncio.get_running_loop().time() * 1000)
 
 
-async def _stream_session(session, json_stream: bool, prefix: str = '') -> None:
-	"""Stream one session until prompt: diff-based, only new/added lines emitted."""
+async def _stream_session(session, json_stream: bool, prefix: str = '', name: str = '') -> None:
+	"""Stream one session until prompt: diff-based, only new/added lines emitted.
+
+	`prefix` is prepended to text-mode output (e.g. "[build] ").
+	`name` is included in json-mode payloads as the `session` field.
+	The `async with session.get_screen_streamer()` context manager guarantees
+	the underlying subscription is torn down on every exit path (#176)."""
 	contents = await session.async_get_screen_contents()
 	initial = _clean_lines(contents)
 	if json_stream:
-		click.echo(json.dumps(
-			{'session_id': session.session_id, 'lines': initial, 'timestamp_ms': _ts()},
-			ensure_ascii=False,
-		))
+		payload = {'session_id': session.session_id, 'lines': initial, 'timestamp_ms': _ts()}
+		if name:
+			payload['session'] = name
+		click.echo(json.dumps(payload, ensure_ascii=False))
 	else:
 		for line in initial:
 			click.echo(f"{prefix}{line}" if prefix else line)
@@ -39,10 +44,10 @@ async def _stream_session(session, json_stream: bool, prefix: str = '') -> None:
 				new_lines = [l for l in snapshot if l not in prev_set]
 				if new_lines:
 					if json_stream:
-						click.echo(json.dumps(
-							{'session_id': session.session_id, 'lines': new_lines, 'timestamp_ms': _ts()},
-							ensure_ascii=False,
-						))
+						payload = {'session_id': session.session_id, 'lines': new_lines, 'timestamp_ms': _ts()}
+						if name:
+							payload['session'] = name
+						click.echo(json.dumps(payload, ensure_ascii=False))
 					else:
 						for line in new_lines:
 							click.echo(f"{prefix}{line}" if prefix else line)
@@ -55,37 +60,74 @@ async def _stream_session(session, json_stream: bool, prefix: str = '') -> None:
 
 
 @cli.command()
-@click.option('-s', '--session', 'session_id', default=None)
+@click.option('-s', '--session', 'session_ids', default=None, multiple=True,
+	help='Session to watch. Pass multiple times to watch several sessions.')
 @click.option('-t', '--timeout', default=None, type=int,
 	help='Exit after N seconds (0 = run forever).')
 @click.option('--all', 'watch_all', is_flag=True, help='Stream all sessions simultaneously.')
 @click.option('--json-stream', is_flag=True, default=False,
-	help='Emit one JSON object per frame: {session_id, lines[], timestamp_ms}.')
-def watch(session_id, timeout, watch_all, json_stream):
+	help='Emit one JSON object per frame: {session, session_id, lines[], timestamp_ms}.')
+def watch(session_ids, timeout, watch_all, json_stream):
 	"""Stream screen updates until prompt. Only new/added lines emitted per frame.
 
-	--all streams every session in parallel. --json-stream switches to
-	machine-readable output. -t/--timeout caps the run time in seconds.
+	--all streams every session in parallel. Pass -s/--session multiple times
+	to stream a subset. --json-stream switches to machine-readable output.
+	-t/--timeout caps the run time in seconds.
 	"""
-	async def _run_single(connection, sid):
-		session = await resolve_session(connection, sid)
-		await _stream_session(session, json_stream)
+	def _label(session) -> str:
+		"""Short display label: session name if available, else short id."""
+		nm = strip(getattr(session, 'name', '') or '').strip()
+		if nm:
+			return nm
+		sid = session.session_id
+		return sid[:8] if len(sid) > 8 else sid
 
-	async def _run_all(connection):
+	async def _collect_sessions(connection):
 		app = await iterm2.async_get_app(connection)
-		tasks = []
+		out = []
 		for window in app.terminal_windows:
 			for tab in window.tabs:
 				for session in tab.sessions:
-					prefix = f"[{session.session_id}] " if not json_stream else ''
-					tasks.append(_stream_session(session, json_stream, prefix))
-		await asyncio.gather(*tasks)
+					out.append(session)
+		return out
+
+	async def _run_multi(connection, sessions):
+		# Align prefixes for readability: [name   ] ...
+		width = max((len(_label(s)) for s in sessions), default=0)
+		tasks = []
+		for session in sessions:
+			name = _label(session)
+			prefix = '' if json_stream else f"[{name.ljust(width)}] "
+			# Each _stream_session manages its own streamer via `async with`,
+			# so cancellation of gather cleans every subscription up (#176).
+			tasks.append(_stream_session(session, json_stream, prefix, name))
+		try:
+			await asyncio.gather(*tasks)
+		except asyncio.CancelledError:
+			# Ensure all sub-tasks are cancelled & awaited on timeout/ctrl-c
+			for t in tasks:
+				if asyncio.iscoroutine(t):
+					continue
+			raise
+
+	async def _run_single(connection, sid):
+		session = await resolve_session(connection, sid)
+		await _stream_session(session, json_stream, name=_label(session))
 
 	async def _run(connection):
 		if watch_all:
-			await _run_all(connection)
+			sessions = await _collect_sessions(connection)
+			if not sessions:
+				raise click.ClickException("No sessions available to watch.")
+			await _run_multi(connection, sessions)
+		elif session_ids and len(session_ids) > 1:
+			sessions = []
+			for sid in session_ids:
+				sessions.append(await resolve_session(connection, sid))
+			await _run_multi(connection, sessions)
 		else:
-			await _run_single(connection, session_id)
+			sid = session_ids[0] if session_ids else None
+			await _run_single(connection, sid)
 
 	if timeout is not None and timeout > 0:
 		async def _run_with_timeout(connection):
