@@ -10,8 +10,9 @@ from _core import cli, run_iterm, strip, __version__, \
 @cli.command()
 @click.option('--json', 'use_json', is_flag=True)
 @click.option('--ids-only', is_flag=True, help='Print only session IDs (one per line).')
+@click.option('--fast', is_flag=True, help='Skip variable queries (process, path); faster on many sessions (#130).')
 @click.option('--where', 'filter_expr', default=None, help='Filter sessions by property (e.g., session_name=main).')
-def status(use_json, ids_only, filter_expr):
+def status(use_json, ids_only, fast, filter_expr):
 	"""List all sessions: name | short-id | process | path"""
 	async def _run(connection):
 		app = await iterm2.async_get_app(connection)
@@ -19,11 +20,19 @@ def status(use_json, ids_only, filter_expr):
 		for window in app.windows:
 			for tab in window.tabs:
 				for session in tab.sessions:
+					# --fast skips the two async_get_variable round-trips per
+					# session — on a 40-session app that's ~80 IPC calls saved.
+					if fast:
+						proc = ''
+						path = ''
+					else:
+						proc = strip(await session.async_get_variable('jobName') or '')
+						path = strip(await session.async_get_variable('path') or '')
 					sessions.append({
 						'session_id': session.session_id,
 						'session_name': strip(session.name or ''),
-						'process': strip(await session.async_get_variable('jobName') or ''),
-						'path': strip(await session.async_get_variable('path') or ''),
+						'process': proc,
+						'path': path,
 						'window_id': window.window_id,
 						'tab_id': tab.tab_id,
 					})
