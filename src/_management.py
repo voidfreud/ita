@@ -116,9 +116,12 @@ def profile_set(property_name, value, session_id):
 		raise click.ClickException("Profile property name cannot be empty")
 	change = iterm2.LocalWriteOnlyProfile()
 	if not hasattr(change, property_name):
-		raise click.ClickException(
-			f"Unknown profile property: {property_name!r}. "
-			"See iterm2.LocalWriteOnlyProfile for valid setters.")
+		if hasattr(change, f'set_{property_name}'):
+			property_name = f'set_{property_name}'
+		else:
+			raise click.ClickException(
+				f"Unknown profile property: {property_name!r}. "
+				"See iterm2.LocalWriteOnlyProfile for valid setters.")
 
 	if re.search(r'_color(_light|_dark)?$', property_name) and not property_name.startswith('use_'):
 		try:
