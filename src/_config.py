@@ -430,13 +430,25 @@ def broadcast_list(use_json):
     async def _run(connection):
         app = await iterm2.async_get_app(connection)
         await app.async_refresh_broadcast_domains()
-        return [[s.session_id for s in d.sessions] for d in app.broadcast_domains]
+        return [
+            [
+                {'session_id': s.session_id, 'session_name': (s.name or '')}
+                for s in d.sessions
+            ]
+            for d in app.broadcast_domains
+        ]
     domains = run_iterm(_run) or []
     if use_json:
         click.echo(json.dumps(domains, indent=2))
         return
     if not domains:
-        click.echo("No broadcast domains active.")
+        click.echo("No broadcast domains.")
         return
     for i, domain in enumerate(domains):
-        click.echo(f"Domain {i}: {', '.join(domain)}")
+        click.echo(f"Domain {i} ({len(domain)} session{'s' if len(domain) != 1 else ''}):")
+        if not domain:
+            click.echo("  (empty)")
+            continue
+        for member in domain:
+            name = member['session_name'] or '(unnamed)'
+            click.echo(f"  {member['session_id']}  {name}")
