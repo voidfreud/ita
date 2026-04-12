@@ -10,8 +10,6 @@ import click
 import iterm2
 from _core import cli, run_iterm, resolve_session, strip, PROMPT_CHARS, last_non_empty_index, check_protected
 
-_shell_integration_warned = False
-
 
 def _is_prompt_line(s: str) -> bool:
 	"""True if s looks like a shell prompt line with no meaningful content
@@ -151,22 +149,17 @@ def run(cmd, timeout, lines, use_json, persist, check_integration, stdin_file, s
 	if not cmd.strip():
 		raise click.ClickException('run requires a non-empty command (or pass --check-integration)')
 	async def _run(connection):
-		global _shell_integration_warned
 		session = await resolve_session(connection, session_id)
 		check_protected(session.session_id, force=force)
 		start = time.time()
 
-		# GAP-10: warn early on stderr if shell integration is missing — exit
-		# codes won't be delivered and run will have to rely on timeout.
+		# #144 / #145: detect shell integration so we can (a) shorten the
+		# PromptMonitor timeout when missing and (b) surface the state in JSON
+		# (shell_integration + exit_code=null) so callers distinguish "exit 0"
+		# from "exit code unavailable". No per-call stderr warning — `ita
+		# doctor` is the single source of integration status, so agents don't
+		# get 20 copies of the same warning across a session.
 		integration_ok = await _has_shell_integration(session)
-		if not integration_ok and not _shell_integration_warned:
-			click.echo(
-				"ita: warning — iTerm2 shell integration not detected in target "
-				"session; exit codes and timeout detection may be unreliable. "
-				"See https://iterm2.com/documentation-shell-integration.html",
-				err=True,
-			)
-			_shell_integration_warned = True
 
 		# Tag rides in on the `:` null-command, which takes and discards its
 		# arguments — POSIX-universal, no shell options required. zsh's
@@ -229,19 +222,22 @@ def run(cmd, timeout, lines, use_json, persist, check_integration, stdin_file, s
 			# carrying it get dropped.
 			output = _fallback_output(contents, lines, tag=tag)
 
-		return output, elapsed_ms, exit_code, timed_out
+		return output, elapsed_ms, exit_code, timed_out, integration_ok
 
-	output, elapsed_ms, exit_code, timed_out = run_iterm(_run)
+	output, elapsed_ms, exit_code, timed_out, integration_ok = run_iterm(_run)
 
 	if use_json:
+		# #144: when shell integration is missing, exit_code is genuinely
+		# unknowable — emit JSON `null` rather than a -1 sentinel so callers
+		# can distinguish "succeeded with code 0" from "could not determine".
 		# 124 is the GNU `timeout` convention for "command timed out".
-		# Surface it as an int so consumers can rely on isinstance(exit_code, int).
-		json_exit = 124 if timed_out else (exit_code if exit_code is not None else -1)
+		json_exit = 124 if timed_out else exit_code  # may be None
 		click.echo(json.dumps({
 			'output': output,
 			'elapsed_ms': elapsed_ms,
 			'exit_code': json_exit,
 			'timed_out': timed_out,
+			'shell_integration': bool(integration_ok),
 		}))
 	else:
 		click.echo(output)
