@@ -349,6 +349,22 @@ Legend per class cell: `✓` covered with real assertions, `s` smoke-only (rc=0)
 
 ---
 
+## 8.1 Mutation testing
+
+**What it is.** Mutation testing automatically injects small code faults (e.g. flipping `>` to `>=`, deleting a `return`) and re-runs the suite. A mutant that survives — i.e. no test turns red — signals a test gap: the code changed but no assertion noticed.
+
+**How to interpret results.** Survived mutants are weak-test signals, not bugs. Prioritise fixing tests around logic that is security- or correctness-critical; surviving mutants in logging or display code are low priority.
+
+**Tooling.** `mutmut` is wired as an optional CI lane (`.github/workflows/ci.yml` job `mutation`). It targets `src/` and runs the fast suite (excludes `integration`, `stress`, `perf`, `fault_injection`). The cache is uploaded as a CI artifact so diffs can be compared between runs.
+
+**Trigger.** `workflow_dispatch` only — run manually via GitHub Actions UI. Do not run on every push; a full mutation pass takes tens of minutes to hours depending on codebase size.
+
+**Cadence.** Quarterly one-shot, or before a significant refactor. Review survived mutants, add targeted assertions, rerun to confirm kill rate improves.
+
+**Local run (optional).** `uv run mutmut run --simple-output` then `uv run mutmut results`. Expect a long wait.
+
+---
+
 ## 9. Contribution rules
 
 1. **New command → all applicable matrix classes before merge.** Happy + at least one error + roundtrip/effect where meaningful + JSON schema if `--json` supported. Smoke-only is not acceptable.
