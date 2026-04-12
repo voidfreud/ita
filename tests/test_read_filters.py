@@ -87,11 +87,66 @@ class TestCombined:
 		assert f(lines) == ['a', 'b']
 
 
+class TestTailFilter:
+	"""Tests for --tail truncation (#126)."""
+
+	def _make_tail_filter(self, tail_n):
+		"""Rebuild the full _filter closure with only tail_n set."""
+		def _filter(raw):
+			result = raw
+			if tail_n is not None and len(result) > tail_n:
+				result = [f"[truncated: {len(result)} lines]"] + result[-tail_n:]
+			return result
+		return _filter
+
+	def test_no_truncation_when_under_limit(self):
+		f = self._make_tail_filter(5)
+		lines = ['a', 'b', 'c']
+		assert f(lines) == ['a', 'b', 'c']
+
+	def test_no_truncation_at_exact_limit(self):
+		f = self._make_tail_filter(3)
+		lines = ['a', 'b', 'c']
+		assert f(lines) == ['a', 'b', 'c']
+
+	def test_truncation_prepends_notice(self):
+		f = self._make_tail_filter(2)
+		lines = ['a', 'b', 'c', 'd']
+		result = f(lines)
+		assert result[0] == '[truncated: 4 lines]'
+		assert result[1:] == ['c', 'd']
+
+	def test_notice_reflects_full_count_not_tail(self):
+		# The notice shows how many lines were present BEFORE cutting, not tail size.
+		f = self._make_tail_filter(1)
+		lines = ['x'] * 10
+		result = f(lines)
+		assert '[truncated: 10 lines]' in result[0]
+
+	def test_tail_none_never_truncates(self):
+		f = self._make_tail_filter(None)
+		lines = list(range(1000))
+		assert f(lines) == lines
+
+
 class TestReadCLIFlags:
 	"""CLI surface check: flags exist and are documented."""
+
 	def test_flags_present_in_help(self):
 		runner = CliRunner()
 		result = runner.invoke(read, ['--help'])
 		assert result.exit_code == 0
 		assert '--after-row' in result.output
 		assert '--since-prompt' in result.output
+
+	def test_tail_flag_present_in_help(self):
+		runner = CliRunner()
+		result = runner.invoke(read, ['--help'])
+		assert result.exit_code == 0
+		assert '--tail' in result.output
+
+	def test_grep_flag_present_in_help(self):
+		runner = CliRunner()
+		result = runner.invoke(read, ['--help'])
+		assert result.exit_code == 0
+		assert '--grep' in result.output

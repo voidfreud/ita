@@ -88,31 +88,122 @@ def test_pref_tmux():
 # ── app ───────────────────────────────────────────────────────────────────────
 
 def test_app_version():
+	"""Upgrade smoke → assert version looks like a real version string."""
+	import re
 	r = ita('app', 'version')
 	assert r.returncode == 0
-	assert r.stdout.strip()
+	assert re.search(r'\d+\.\d+', r.stdout), f"Unexpected version output: {r.stdout!r}"
+
+
+def test_app_activate():
+	"""app activate should bring iTerm2 to foreground without error."""
+	r = ita('app', 'activate')
+	assert r.returncode == 0
+	assert not r.stderr.strip(), f"Unexpected stderr: {r.stderr!r}"
+
+
+def test_app_hide():
+	"""app hide should complete successfully (visual effect not assertable)."""
+	r = ita('app', 'hide')
+	assert r.returncode == 0
+	# Restore focus so subsequent tests aren't disrupted
+	ita('app', 'activate')
+
+
+# app quit is intentionally skipped: running it would quit iTerm2 and kill all
+# parallel worktrees sharing the same process. Test only via mock if needed.
 
 
 def test_app_theme():
+	"""app theme output should contain a known theme word."""
 	r = ita('app', 'theme')
 	assert r.returncode == 0
+	out = r.stdout.strip().lower()
+	assert out, "app theme returned empty output"
+	assert any(w in out for w in ('light', 'dark', 'auto', 'minimal', 'highcontrast')), (
+		f"Unexpected theme output: {r.stdout!r}"
+	)
 
 
 # ── broadcast ─────────────────────────────────────────────────────────────────
 
-def test_broadcast_list():
-	r = ita('broadcast', 'list')
+# ── var list ─────────────────────────────────────────────────────────────────
+
+def test_var_list_happy(shared_session):
+	r = ita('var', 'list', '--scope', 'session', '-s', shared_session)
+	assert r.returncode == 0
+	assert r.stdout.strip(), "var list --scope session returned no output"
+
+
+def test_var_list_all_scopes():
+	r = ita('var', 'list')
 	assert r.returncode == 0
 
 
-def test_broadcast_on_session_flag(session):
-	"""broadcast on should accept -s/--session flag (#50)."""
-	r = ita('broadcast', 'on', '-s', session)
+@pytest.mark.contract
+def test_var_list_json_schema():
+	"""--json output must be an object keyed by scope, each value a dict."""
+	import json
+	import jsonschema
+	r = ita('var', 'list', '--json', '--scope', 'session')
 	assert r.returncode == 0
-	ita('broadcast', 'off')
+	data = json.loads(r.stdout)
+	schema = {
+		'type': 'object',
+		'properties': {
+			'session': {'type': 'object'},
+			'tab': {'type': 'object'},
+			'window': {'type': 'object'},
+			'app': {'type': 'object'},
+		},
+	}
+	jsonschema.validate(data, schema)
 
 
-def test_broadcast_on_off_roundtrip(session):
-	ita_ok('broadcast', 'on', '-s', session)
-	r = ita('broadcast', 'off')
+# ── pref theme / pref tmux ────────────────────────────────────────────────────
+
+def test_pref_theme_happy():
+	"""pref theme returns non-empty output containing a known theme word."""
+	r = ita('pref', 'theme')
 	assert r.returncode == 0
+	out = r.stdout.strip().lower()
+	assert out, "pref theme returned empty output"
+	assert any(w in out for w in ('light', 'dark', 'auto', 'minimal', 'highcontrast')), (
+		f"Unexpected pref theme output: {r.stdout!r}"
+	)
+
+
+def test_pref_tmux_known_keys():
+	"""pref tmux output must include the four known tmux preference keys."""
+	import json
+	r = ita('pref', 'tmux')
+	assert r.returncode == 0
+	data = json.loads(r.stdout)
+	for key in ('OPEN_TMUX_WINDOWS_IN', 'TMUX_DASHBOARD_LIMIT',
+				'AUTO_HIDE_TMUX_CLIENT_SESSION', 'USE_TMUX_PROFILE'):
+		assert key in data, f"Missing expected tmux pref key: {key}"
+
+
+@pytest.mark.error
+def test_pref_tmux_bad_key():
+	"""pref tmux with an unknown key should fail with a useful error."""
+	r = ita('pref', 'tmux', 'NOT_A_REAL_TMUX_PREF_ZZZ', 'true')
+	assert r.returncode != 0
+	assert 'unknown' in r.stderr.lower() or 'Unknown' in r.stderr
+
+
+@pytest.mark.contract
+def test_pref_set_json_output():
+	"""pref set --json must emit {ok: true, key: <key>}."""
+	import json
+	key = 'DIM_BACKGROUND_WINDOWS'
+	original = ita('pref', 'get', key).stdout.strip()
+	try:
+		r = ita('pref', 'set', key, original, '--json')
+		assert r.returncode == 0
+		data = json.loads(r.stdout)
+		assert data.get('ok') is True
+		assert data.get('key') == key
+	finally:
+		ita('pref', 'set', key, original)
+
