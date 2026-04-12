@@ -9,7 +9,7 @@ from _output import _clean_lines, _is_prompt_line
 
 
 def _ts() -> int:
-	return int(asyncio.get_event_loop().time() * 1000)
+	return int(asyncio.get_running_loop().time() * 1000)
 
 
 async def _stream_session(session, json_stream: bool, prefix: str = '') -> None:
