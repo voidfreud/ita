@@ -4,7 +4,8 @@ import json
 import click
 import iterm2
 from _core import cli, run_iterm, strip, __version__, \
-	add_protected, remove_protected, get_protected, resolve_session
+	add_protected, remove_protected, get_protected, resolve_session, \
+	parse_filter, match_filter
 
 
 @cli.command()
@@ -41,11 +42,8 @@ def status(use_json, ids_only, fast, filter_expr):
 	sessions = run_iterm(_run) or []
 
 	if filter_expr:
-		parts = filter_expr.split('=', 1)
-		if len(parts) != 2:
-			raise click.ClickException(f"Invalid filter format: {filter_expr!r}. Use KEY=VALUE")
-		key, value = parts
-		sessions = [s for s in sessions if str(s.get(key, '')).strip() == value.strip()]
+		key, op, value = parse_filter(filter_expr)
+		sessions = [s for s in sessions if match_filter(s, key, op, value)]
 
 	if ids_only:
 		for s in sessions:
