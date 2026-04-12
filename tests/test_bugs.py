@@ -69,8 +69,7 @@ def test_s3_run_without_integration_reports_warning(session):
 
 
 # ── CF1: var get/set built-in variable access ─────────────────────────────
-@pytest.mark.known_broken
-@pytest.mark.xfail(reason="CF1: var get prepends user. to built-in names (#101)", strict=False)
+@pytest.mark.regression
 def test_cf1_var_get_builtin_rows(session):
 	"""CF1 (#101): var get <builtin> must NOT prepend 'user.' prefix.
 	'rows' is a built-in session variable that should return a number."""
@@ -208,8 +207,7 @@ def test_ss1_profile_set_string_property_no_crash():
 	assert 'Traceback' not in r.stderr, f"SS1: raw traceback on profile set: {r.stderr}"
 
 
-@pytest.mark.known_broken
-@pytest.mark.xfail(reason="SS1: color properties need iterm2.Color object, not raw hex string (#108)", strict=False)
+@pytest.mark.regression
 def test_ss1_profile_set_color_property():
 	"""SS1 (#108): setting a color property with a hex string must not crash."""
 	r = ita('profile', 'set', 'Default', 'background_color', '#1e1e1e')
