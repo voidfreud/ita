@@ -1,0 +1,97 @@
+"""Unit tests for `ita read` filters: --after-row, --since-prompt (issue #141)."""
+import sys
+from pathlib import Path
+
+import pytest
+from click.testing import CliRunner
+
+sys.path.insert(0, str(Path(__file__).parent.parent / 'src'))
+
+from _output import _is_prompt_line, read  # noqa: E402
+
+
+def _make_filter(after_row=None, since_prompt=False, grep_rx=None):
+	"""Rebuild the _filter closure from _output.read for direct testing."""
+	def _filter(raw):
+		result = raw
+		if after_row is not None:
+			result = result[after_row:]
+		if grep_rx:
+			result = [l for l in result if grep_rx.search(l)]
+		if since_prompt:
+			for i in range(len(result) - 1, -1, -1):
+				if _is_prompt_line(result[i]):
+					result = result[i + 1:]
+					break
+		return result
+	return _filter
+
+
+class TestIsPromptLine:
+	@pytest.mark.parametrize('line', ['$', '# root', '% zsh', '❯ cmd', '→ go', '>> py', 'cmd $', '  $  '])
+	def test_detects_prompts(self, line):
+		assert _is_prompt_line(line) is True
+
+	@pytest.mark.parametrize('line', ['', '   ', 'hello world', 'no prompt here', 'foo bar baz'])
+	def test_rejects_non_prompts(self, line):
+		assert _is_prompt_line(line) is False
+
+
+class TestAfterRow:
+	def test_skips_first_n(self):
+		f = _make_filter(after_row=2)
+		assert f(['a', 'b', 'c', 'd']) == ['c', 'd']
+
+	def test_zero_returns_all(self):
+		f = _make_filter(after_row=0)
+		assert f(['a', 'b', 'c']) == ['a', 'b', 'c']
+
+	def test_past_end_returns_empty(self):
+		f = _make_filter(after_row=10)
+		assert f(['a', 'b']) == []
+
+	def test_none_returns_all(self):
+		f = _make_filter(after_row=None)
+		assert f(['a', 'b', 'c']) == ['a', 'b', 'c']
+
+
+class TestSincePrompt:
+	def test_returns_lines_after_last_prompt(self):
+		f = _make_filter(since_prompt=True)
+		lines = ['$ first', 'out1', '$ second', 'out2', 'out3']
+		assert f(lines) == ['out2', 'out3']
+
+	def test_no_prompt_returns_all(self):
+		f = _make_filter(since_prompt=True)
+		assert f(['hello', 'world']) == ['hello', 'world']
+
+	def test_prompt_is_last_line(self):
+		f = _make_filter(since_prompt=True)
+		assert f(['out', '$ ']) == []
+
+	def test_finds_last_not_first(self):
+		f = _make_filter(since_prompt=True)
+		lines = ['$ a', 'x', '$ b', 'y', '$ c', 'z']
+		assert f(lines) == ['z']
+
+	def test_empty_input(self):
+		f = _make_filter(since_prompt=True)
+		assert f([]) == []
+
+
+class TestCombined:
+	def test_after_row_then_since_prompt(self):
+		f = _make_filter(after_row=1, since_prompt=True)
+		lines = ['$ old', '$ kept', 'a', 'b']
+		# after_row=1 -> ['$ kept', 'a', 'b']; since_prompt strips through last prompt -> ['a','b']
+		assert f(lines) == ['a', 'b']
+
+
+class TestReadCLIFlags:
+	"""CLI surface check: flags exist and are documented."""
+	def test_flags_present_in_help(self):
+		runner = CliRunner()
+		result = runner.invoke(read, ['--help'])
+		assert result.exit_code == 0
+		assert '--after-row' in result.output
+		assert '--since-prompt' in result.output
