@@ -224,7 +224,7 @@ def repl():
             if result.exit_code != 0:
                 if result.stderr:
                     click.echo(result.stderr, err=True, nl=False)
-                if result.exception:
+                if result.exception and not isinstance(result.exception, SystemExit):
                     click.echo(f"Error: {result.exception}", err=True)
                 elif not result.stderr:
                     click.echo(f"Error: exited with code {result.exit_code}", err=True)
