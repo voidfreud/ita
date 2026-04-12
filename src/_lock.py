@@ -73,7 +73,7 @@ def unlock(session_id, force, dry_run, quiet):
 		click.echo(f"Not write-locked: {sid}")
 		return
 	import os
-	if int(entry.get('pid', 0)) != os.getpid():
+	if int(entry.get('pid', 0)) != os.getppid():
 		# Different owner — best-effort release: drop the entry if the PID is
 		# stale, otherwise refuse (don't let one shell steal another's lock).
 		if not _pid_alive(int(entry.get('pid', 0))):

@@ -4,6 +4,7 @@ Core helpers shared by all ita modules.
 run_iterm(), resolve_session(), strip().
 """
 import asyncio
+import fcntl
 import json
 import os
 import sys
@@ -98,16 +99,30 @@ def _pid_alive(pid: int) -> bool:
 
 def acquire_writelock(session_id: str) -> bool:
 	"""Try to claim the write-lock. Returns False if another *live* PID
-	holds it; stale locks are silently reclaimed. Single-host only."""
-	data = _load_writelocks()
-	entry = data.get(session_id)
-	if entry and _pid_alive(int(entry.get('pid', 0))):
-		return False
-	data[session_id] = {
-		'pid': os.getpid(),
-		'at': datetime.now(timezone.utc).isoformat(timespec='seconds'),
-	}
-	_save_writelocks(data)
+	holds it; stale locks are silently reclaimed. Single-host only.
+
+	fcntl.LOCK_EX serialises concurrent callers so the read-check-write
+	sequence is atomic on the local filesystem (fixes TOCTOU, #197).
+	os.getppid() stores the invoking shell's PID rather than the
+	short-lived CLI process so the lock survives until the shell exits (#196)."""
+	with open(WRITELOCK_FILE, 'a+') as f:
+		fcntl.flock(f, fcntl.LOCK_EX)
+		f.seek(0)
+		raw = f.read()
+		try:
+			data = json.loads(raw) if raw.strip() else {}
+		except json.JSONDecodeError:
+			data = {}
+		entry = data.get(session_id)
+		if entry and _pid_alive(int(entry.get('pid', 0))):
+			return False
+		data[session_id] = {
+			'pid': os.getppid(),
+			'at': datetime.now(timezone.utc).isoformat(timespec='seconds'),
+		}
+		f.seek(0)
+		f.truncate()
+		f.write(json.dumps(data, indent=2) + '\n')
 	return True
 
 
@@ -115,7 +130,7 @@ def release_writelock(session_id: str) -> None:
 	"""Release iff held by this process. No-op otherwise, so safe in finally."""
 	data = _load_writelocks()
 	entry = data.get(session_id)
-	if entry and int(entry.get('pid', 0)) == os.getpid():
+	if entry and int(entry.get('pid', 0)) == os.getppid():
 		data.pop(session_id, None)
 		_save_writelocks(data)
 
