@@ -1,6 +1,5 @@
 """Tests for point-in-time query commands: wait, selection, copy, get-prompt (_query.py)."""
 import json
-import subprocess
 import sys
 from pathlib import Path
 import pytest

@@ -5,7 +5,6 @@ Run with: uv run --with pytest --with click --with iterm2 pytest tests/test_inte
 """
 import subprocess
 from pathlib import Path
-import pytest
 
 ITA_SCRIPT = Path(__file__).parent.parent / 'src' / 'ita.py'
 

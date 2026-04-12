@@ -3,7 +3,7 @@ import json
 import re
 import sys
 import pytest
-from jsonschema import validate, ValidationError
+from jsonschema import validate
 
 sys.path.insert(0, str(__import__('pathlib').Path(__file__).parent))
 from conftest import ita, ita_ok

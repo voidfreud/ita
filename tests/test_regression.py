@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 
 sys.path.insert(0, str(Path(__file__).parent))
-from conftest import ita, ita_ok
+from conftest import ita
 
 ITA = Path(__file__).parent.parent / 'src' / 'ita.py'
 pytestmark = [pytest.mark.integration, pytest.mark.regression]

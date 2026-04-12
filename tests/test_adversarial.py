@@ -1,7 +1,6 @@
 """Adversarial tests — boundary values, error paths, state-after-failure, concurrency.
 Goal: find bugs, not confirm working behavior. A passing test here found nothing useful."""
 import json
-import subprocess
 import sys
 import threading
 import time
@@ -9,7 +8,7 @@ from pathlib import Path
 import pytest
 
 sys.path.insert(0, str(Path(__file__).parent))
-from conftest import ita, ita_ok
+from conftest import ita
 
 pytestmark = [pytest.mark.integration]
 

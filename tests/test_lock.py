@@ -1,5 +1,4 @@
 """Tests for _lock.py: lock, unlock commands."""
-import json
 import sys
 import pytest
 

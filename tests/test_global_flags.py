@@ -14,7 +14,6 @@ SRC = Path(__file__).parent.parent / 'src'
 sys.path.insert(0, str(SRC))
 
 import _core  # noqa: E402
-import ita as _ita_module  # noqa: E402 — triggers command registration
 
 cli = _core.cli
 
@@ -41,7 +40,8 @@ def test_dry_run_does_not_mutate(cmd):
 		called['n'] += 1
 	with patch.object(_core, 'run_iterm', _spy):
 		# Also patch the run_iterm re-exports in modules.
-		import _config, _layout
+		import _config
+		import _layout
 		with patch.object(_config, 'run_iterm', _spy), patch.object(_layout, 'run_iterm', _spy):
 			result = runner.invoke(cli, cmd)
 	assert result.exit_code == 0, result.output

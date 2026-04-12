@@ -205,7 +205,8 @@ def test_on_keystroke_json_shape(session):
 
 def test_on_session_new_json_schema():
 	"""Contract: --json emits {session_id, name} with UUID-shaped id."""
-	import json, re
+	import json
+	import re
 	UUID_RE = re.compile(r'[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}', re.I)
 	proc = _popen('on', 'session-new', '-t', '10', '--json')
 	time.sleep(0.3)
