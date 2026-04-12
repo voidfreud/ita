@@ -57,15 +57,11 @@ def test_run_bad_args(args, expected_rc):
 
 # ── inject arg validation ─────────────────────────────────────────────────────
 
-@pytest.mark.parametrize('args,expected_rc', [
-	(['inject'],                2),  # missing DATA arg
-	(['inject', '--hex', 'zz'], 1),  # invalid hex chars
-	(['inject', '--hex', ''],   0),  # empty hex = no-op (fixed bug)
-])
-def test_inject_args(args, expected_rc):
-	r = ita(*args)
-	assert r.returncode == expected_rc, (
-		f"args={args}: expected rc={expected_rc}, got {r.returncode}\nstderr: {r.stderr}"
+def test_inject_missing_arg():
+	"""inject with no DATA arg is a Click UsageError (rc=2), no iTerm2 needed."""
+	r = ita('inject')
+	assert r.returncode == 2, (
+		f"expected rc=2, got {r.returncode}\nstderr: {r.stderr}"
 	)
 
 

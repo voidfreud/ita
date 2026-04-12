@@ -124,8 +124,8 @@ def test_inject_hex_empty_noop(session):
 	assert r.returncode == 0
 
 
-def test_inject_hex_invalid():
-	r = ita('inject', '--hex', 'zz')
+def test_inject_hex_invalid(session):
+	r = ita('inject', '--hex', 'zz', '-s', session)
 	assert r.returncode == 1
 	assert 'hex' in r.stderr.lower() or 'Invalid' in r.stderr
 
