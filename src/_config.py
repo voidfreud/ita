@@ -424,11 +424,19 @@ def broadcast_set(domains):
 
 
 @broadcast.command('list')
-def broadcast_list():
+@click.option('--json', 'use_json', is_flag=True)
+def broadcast_list(use_json):
     """List active broadcast domains."""
     async def _run(connection):
         app = await iterm2.async_get_app(connection)
         await app.async_refresh_broadcast_domains()
         return [[s.session_id for s in d.sessions] for d in app.broadcast_domains]
-    for i, domain in enumerate(run_iterm(_run) or []):
+    domains = run_iterm(_run) or []
+    if use_json:
+        click.echo(json.dumps(domains, indent=2))
+        return
+    if not domains:
+        click.echo("No broadcast domains active.")
+        return
+    for i, domain in enumerate(domains):
         click.echo(f"Domain {i}: {', '.join(domain)}")
