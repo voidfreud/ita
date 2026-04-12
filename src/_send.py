@@ -83,6 +83,56 @@ def _fallback_output(contents, lines_cap: int, tag: str | None = None) -> str:
 	return '\n'.join(rows[-lines_cap:])
 
 
+async def _prompt_is_back(session) -> bool:
+	"""True if the last non-empty screen row looks like a shell prompt —
+	used after sending an interrupt to decide whether the foreground
+	process has released control back to the shell. Best-effort: any
+	screen-read failure is treated as 'still hung' so escalation proceeds."""
+	try:
+		contents = await session.async_get_screen_contents()
+		last = last_non_empty_index(contents)
+		if last < 0:
+			return False
+		return _is_prompt_line(strip(contents.line(last).string))
+	except Exception:
+		return False
+
+
+async def _escalate_interrupt(session) -> bool:
+	"""#175: interrupt ladder after a `run` timeout.
+
+	Step 1: Ctrl+C. Wait ~1s for the prompt to come back.
+	Step 2: Ctrl+U (clear any partial input) + Ctrl+C again. Wait ~1s.
+	Step 3: `kill %% 2>/dev/null; kill -9 %% 2>/dev/null` sent as a shell
+		command — targets the most-recent background/suspended job. Last
+		resort when the foreground process has ignored SIGINT entirely.
+
+	Returns True if we escalated past step 1 (caller surfaces this in JSON
+	and stderr so users know the session may be in an unusual state)."""
+	# Step 1: standard Ctrl+C.
+	await session.async_send_text('\x03')
+	await asyncio.sleep(1.0)
+	if await _prompt_is_back(session):
+		return False
+	# Step 2: clear input line (a partial prompt can swallow the next ^C),
+	# then send ^C again. This handles cases where the first Ctrl+C landed
+	# inside a prompt that had leftover characters.
+	await session.async_send_text('\x15')  # Ctrl+U: kill input line
+	await asyncio.sleep(0.2)
+	await session.async_send_text('\x03')
+	await asyncio.sleep(1.0)
+	if await _prompt_is_back(session):
+		return True
+	# Step 3: last resort — send explicit kill commands targeting the current
+	# job (%%). If the shell is responsive at all, this will land; if the
+	# shell itself is wedged, nothing here will help and we exit gracefully.
+	await session.async_send_text('\x15')
+	await asyncio.sleep(0.1)
+	await session.async_send_text('kill %% 2>/dev/null; kill -9 %% 2>/dev/null\n')
+	await asyncio.sleep(0.5)
+	return True
+
+
 async def _has_shell_integration(session) -> bool:
 	"""Best-effort detection. iTerm2 shell integration sets the user variable
 	`user.iterm2_shell_integration_version` on session start. Absence of that
@@ -99,6 +149,8 @@ async def _has_shell_integration(session) -> bool:
 @click.argument('cmd', required=False)
 @click.option('-t', '--timeout', default=30, type=click.IntRange(min=1), help='Timeout seconds (default: 30)')
 @click.option('-n', '--lines', default=50, type=click.IntRange(min=1), help='Output lines to return (default: 50)')
+@click.option('--tail', 'tail_n', default=None, type=click.IntRange(min=1),
+		help='Truncate output to last N lines. Prepends [truncated: X lines] when output was cut. (#126)')
 @click.option('--json', 'use_json', is_flag=True)
 @click.option('--persist', is_flag=True,
 		help="Run in the session's live shell (state persists — cd/env/aliases stay) "
@@ -106,10 +158,11 @@ async def _has_shell_integration(session) -> bool:
 @click.option('--check-integration', is_flag=True,
 		help='Check only — report whether iTerm2 shell integration is active in the target session, then exit.')
 @click.option('--stdin', 'stdin_file', default=None, type=click.File('r'),
-		help='Read script from file (or - for stdin) and send line by line with small delays.')
+		help='Read multi-line script from file (or - for stdin), run as one unit via bash -s heredoc, '
+			 'capture exit code of last command. (#137)')
 @click.option('-s', '--session', 'session_id', default=None)
 @click.option('--force', is_flag=True, help='Override protected-session guard.')
-def run(cmd, timeout, lines, use_json, persist, check_integration, stdin_file, session_id, force):
+def run(cmd, timeout, lines, tail_n, use_json, persist, check_integration, stdin_file, session_id, force):
 	"""Send command, wait for completion, return scoped output and exit code.
 	By default the command runs in a subshell so `exit`, `cd`, and env mutations
 	stay isolated. Pass `--persist` to run in the session's live shell (state
@@ -118,21 +171,21 @@ def run(cmd, timeout, lines, use_json, persist, check_integration, stdin_file, s
 	capture requires iTerm2 shell integration to be active in the session; pass
 	`--check-integration` to verify before relying on it. Without shell integration,
 	exit code is always 0 (actual exit status is unavailable). Use `--stdin FILE`
-	(or `--stdin -` for stdin) to read a multi-line script and send it line by line
-	with small delays to avoid overwhelming the shell."""
+	(or `--stdin -` for stdin) to run a multi-line script as a single unit
+	(exit code of the last command). `--tail N` truncates output to the last N
+	lines with a truncation notice — useful for long test/build output."""
+	# #137: stdin synthesizes `cmd` from a multi-line script, then falls through
+	# to the regular run pipeline so exit-code capture, timeout, and output
+	# scoping all work identically. Heredoc delimiter is uniquified below using
+	# the same tag we generate for echo-row detection.
+	stdin_script = None
 	if stdin_file is not None:
 		if cmd is not None:
 			raise click.UsageError('Cannot pass both CMD and --stdin')
-		script_lines = [line.rstrip('\n\r') for line in stdin_file.readlines()]
+		stdin_script = stdin_file.read().rstrip('\n\r')
 		stdin_file.close()
-		async def _send_script(connection):
-			session = await resolve_session(connection, session_id)
-			check_protected(session.session_id, force=force)
-			for line in script_lines:
-				await session.async_send_text(line + '\n')
-				await asyncio.sleep(0.05)
-		run_iterm(_send_script)
-		sys.exit(0)
+		if not stdin_script.strip():
+			raise click.ClickException('--stdin received empty script')
 	if check_integration:
 		# Short-circuit: don't execute `cmd`, just probe and report.
 		async def _probe(connection):
@@ -144,9 +197,9 @@ def run(cmd, timeout, lines, use_json, persist, check_integration, stdin_file, s
 		else:
 			click.echo('active' if active else 'missing')
 		sys.exit(0 if active else 1)
-	if cmd is None:
-		raise click.UsageError('Missing argument CMD (or pass --check-integration).')
-	if not cmd.strip():
+	if cmd is None and stdin_script is None:
+		raise click.UsageError('Missing argument CMD (or pass --stdin / --check-integration).')
+	if cmd is not None and not cmd.strip():
 		raise click.ClickException('run requires a non-empty command (or pass --check-integration)')
 	async def _run(connection):
 		session = await resolve_session(connection, session_id)
@@ -167,20 +220,40 @@ def run(cmd, timeout, lines, use_json, persist, check_integration, stdin_file, s
 		# parsing. Spaces inside `( ... )` prevent zsh/bash arithmetic parsing
 		# when user's cmd starts with `(`.
 		tag = uuid.uuid4().hex[:12]
-		# Collapse backslash-newline continuations to avoid zsh subsh> prompt leaking (#83)
-		cmd_flat = cmd.replace('\\\n', ' ')
-		# --persist runs the command in the caller's live shell (no subshell),
-		# so state (cwd, vars, aliases) sticks. The `:` tag line still prefixes
-		# the send so output-scoping/echo-row detection keeps working.
-		if persist:
-			wrapped = f": ita-{tag}; {cmd_flat}"
+		# #137: stdin script runs as a single bash -s invocation fed via heredoc.
+		# Delimiter is tag-derived so user content can't terminate it early.
+		# Exit code of the last command in the script becomes the invocation's
+		# exit code (bash default). Runs on one line of sent text — embedded
+		# newlines in the heredoc are part of the text we send, and the shell
+		# treats the whole thing as a single compound command.
+		if stdin_script is not None:
+			eof = f"ITA_{tag}_EOF"
+			# The heredoc body is sent verbatim; bash reads until the delimiter.
+			# `bash -s` reads the script from stdin; the subshell wrapping is
+			# implicit (bash -s itself is the isolated process), so --persist
+			# doesn't change structure here — but we still respect the flag by
+			# choosing whether to fork a subshell around it.
+			inner = f"bash -s <<'{eof}'\n{stdin_script}\n{eof}"
+			if persist:
+				wrapped = f": ita-{tag}; {inner}"
+			else:
+				wrapped = f": ita-{tag}; ( {inner} )"
 		else:
-			wrapped = f": ita-{tag}; ( {cmd_flat} )"
+			# Collapse backslash-newline continuations to avoid zsh subsh> prompt leaking (#83)
+			cmd_flat = cmd.replace('\\\n', ' ')
+			# --persist runs the command in the caller's live shell (no subshell),
+			# so state (cwd, vars, aliases) sticks. The `:` tag line still prefixes
+			# the send so output-scoping/echo-row detection keeps working.
+			if persist:
+				wrapped = f": ita-{tag}; {cmd_flat}"
+			else:
+				wrapped = f": ita-{tag}; ( {cmd_flat} )"
 
 		# Shell integration delivers COMMAND_END with the exit code. If the session
 		# has no shell integration loaded, this times out and exit_code stays None.
 		exit_code = None
 		timed_out = False
+		escalated = False
 		async with iterm2.PromptMonitor(
 				connection, session.session_id,
 				modes=[iterm2.PromptMonitor.Mode.COMMAND_END]) as mon:
@@ -191,7 +264,10 @@ def run(cmd, timeout, lines, use_json, persist, check_integration, stdin_file, s
 					exit_code = payload
 			except asyncio.TimeoutError:
 				timed_out = True  # no shell integration, or command genuinely timed out
-				await session.async_send_text('\x03')  # kill orphaned subshell
+				# #175: escalation ladder — Ctrl+C is not enough for processes
+				# that ignore SIGINT (editors, some REPLs). After each signal,
+				# check whether the prompt returned; only escalate if still hung.
+				escalated = await _escalate_interrupt(session)
 
 		elapsed_ms = int((time.time() - start) * 1000)
 
@@ -215,16 +291,29 @@ def run(cmd, timeout, lines, use_json, persist, check_integration, stdin_file, s
 			end_row = max(start_row, last_idx + 1) if last_idx >= 0 else start_row
 			rows = [strip(contents.line(i).string).rstrip() for i in range(start_row, end_row)]
 			rows = _trim_output_lines(rows)
-			output = '\n'.join(rows[-lines:])
+			output_rows = rows[-lines:]
 		else:
 			# BUG-1: echo row not found — output scrolled past it. Recover from the
 			# visible screen. Pass the tag so any wrap-continuation rows still
 			# carrying it get dropped.
-			output = _fallback_output(contents, lines, tag=tag)
+			fallback = _fallback_output(contents, lines, tag=tag)
+			output_rows = fallback.split('\n') if fallback else []
 
-		return output, elapsed_ms, exit_code, timed_out, integration_ok
+		# #126: explicit --tail N overrides the default lines cap and prepends
+		# a truncation notice when output was actually cut. Silent truncation
+		# from -n/--lines is preserved for backwards compatibility.
+		truncated_from = None
+		if tail_n is not None and len(output_rows) > tail_n:
+			truncated_from = len(output_rows)
+			output_rows = output_rows[-tail_n:]
 
-	output, elapsed_ms, exit_code, timed_out, integration_ok = run_iterm(_run)
+		output = '\n'.join(output_rows)
+		if truncated_from is not None:
+			output = f"[truncated: {truncated_from} lines]\n" + output
+
+		return output, elapsed_ms, exit_code, timed_out, integration_ok, escalated
+
+	output, elapsed_ms, exit_code, timed_out, integration_ok, escalated = run_iterm(_run)
 
 	if use_json:
 		# #144: when shell integration is missing, exit_code is genuinely
@@ -237,12 +326,14 @@ def run(cmd, timeout, lines, use_json, persist, check_integration, stdin_file, s
 			'elapsed_ms': elapsed_ms,
 			'exit_code': json_exit,
 			'timed_out': timed_out,
+			'escalated': bool(escalated),
 			'shell_integration': bool(integration_ok),
 		}))
 	else:
 		click.echo(output)
 		if timed_out:
-			click.echo(f"ita: timed out after {timeout}s", err=True)
+			suffix = ' (escalated past Ctrl+C)' if escalated else ''
+			click.echo(f"ita: timed out after {timeout}s{suffix}", err=True)
 
 	# Timeout is always a failure (rc=1). Otherwise propagate the command's own rc.
 	if timed_out:
