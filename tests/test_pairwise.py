@@ -96,7 +96,7 @@ def test_split_directions(flag, label):
 	"""Each split direction must return a new session ID."""
 	r_parent = ita('new')
 	assert r_parent.returncode == 0, f"new session failed: {r_parent.stderr}"
-	parent_sid = r_parent.stdout.strip()
+	parent_sid = r_parent.stdout.strip().split('\t')[-1]
 	assert parent_sid, "new session returned empty ID"
 
 	try:

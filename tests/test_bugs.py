@@ -99,10 +99,10 @@ def test_cf2_broadcast_on_merges_existing_domains(session):
 	in other broadcast domains."""
 	r2 = ita('new')
 	assert r2.returncode == 0
-	sid2 = r2.stdout.strip()
+	sid2 = r2.stdout.strip().split('\t')[-1]
 	r3 = ita('new')
 	assert r3.returncode == 0
-	sid3 = r3.stdout.strip()
+	sid3 = r3.stdout.strip().split('\t')[-1]
 	try:
 		ita('broadcast', 'on', '-s', session)
 		ita('broadcast', 'on', '-s', sid2)
@@ -298,9 +298,9 @@ def test_e2_on_focus_timeout_no_none_prefix(session):
 		f"E2 regression: on focus timeout echoed 'None': {r.stdout!r}"
 
 
-# ── SS3: close without sticky must report the session being closed ─────────
+# ── SS3: close with -s must report the session being closed ────────────────
 @pytest.mark.regression
-def test_ss3_close_without_sticky_reports_session(session):
+def test_ss3_close_reports_session(session):
 	"""SS3 (fixed): close -s <id> must print the closed session ID (or at minimum
 	not silently kill it without any output when -s is given)."""
 	# The fix was to report the session ID; this verifies it doesn't crash silently.
@@ -333,7 +333,7 @@ def test_on_session_end_fires_and_reports_id():
 	"""Fixed v1.1.1: on session-end must fire and print the terminated session ID."""
 	r_new = ita('new')
 	assert r_new.returncode == 0
-	fresh_sid = r_new.stdout.strip()
+	fresh_sid = r_new.stdout.strip().split('\t')[-1]
 	proc = subprocess.Popen(
 		['uv', 'run', str(Path(__file__).parent.parent / 'src' / 'ita.py'),
 		 'on', 'session-end', '-s', fresh_sid, '-t', '10'],

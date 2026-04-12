@@ -3,7 +3,7 @@
 import json
 import click
 import iterm2
-from _core import cli, run_iterm, set_sticky, get_sticky
+from _core import cli, run_iterm
 
 
 @cli.group()
@@ -16,7 +16,7 @@ def tab():
 @click.option('--window', 'window_id', default=None)
 @click.option('--profile', default=None)
 def tab_new(window_id, profile):
-	"""Create new tab. Sets sticky target."""
+	"""Create new tab. Returns session ID."""
 	async def _run(connection):
 		app = await iterm2.async_get_app(connection)
 		window = app.get_window_by_id(window_id) if window_id else app.current_terminal_window
@@ -29,7 +29,6 @@ def tab_new(window_id, profile):
 				raise click.ClickException(f"Profile not found: {profile!r}") from e
 			raise
 		session = new_tab.current_session
-		set_sticky(session.session_id)
 		return session.session_id
 	click.echo(run_iterm(_run))
 
@@ -146,12 +145,8 @@ def tab_list(use_json, ids_only):
 def tab_info(tab_id, use_json):
 	async def _run(connection):
 		app = await iterm2.async_get_app(connection)
-		sticky_id = get_sticky()
 		if tab_id:
 			t = app.get_tab_by_id(tab_id)
-		elif sticky_id:
-			sess = app.get_session_by_id(sticky_id)
-			_, t = app.get_window_and_tab_for_session(sess) if sess else (None, None)
 		else:
 			t = app.current_terminal_window.current_tab if app.current_terminal_window else None
 		if not t:

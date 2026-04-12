@@ -4,7 +4,7 @@ import asyncio
 import re
 import click
 import iterm2
-from _core import cli, run_iterm, resolve_session, get_sticky, strip, PROMPT_CHARS, last_non_empty_index
+from _core import cli, run_iterm, resolve_session, strip, PROMPT_CHARS, last_non_empty_index
 
 
 @cli.group()
@@ -162,7 +162,7 @@ def on_session_new(timeout):
 def on_session_end(timeout, session_id):
     """Block until a session terminates. Returns session ID."""
     async def _run(connection):
-        target = session_id or get_sticky()
+        target = session_id
         q = asyncio.Queue()
         async def cb(connection, notification):
             sid = notification.session_id
