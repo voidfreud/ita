@@ -28,35 +28,26 @@ def _force_options(f):
 
 
 def _trim_output_lines(lines: list[str]) -> list[str]:
-	"""Drop trailing prompt/blank rows, strip zsh `%` no-newline indicator from the
-	final content line, and remove leading/trailing blanks. Never discards the last
-	real content line — BUG-3: when the `%` indicator is alone on its own row right
-	after real output, we strip it without deleting the content above it."""
+	"""Drop trailing prompt/blank rows. Preserve content (CONTRACT §3, §9, #331).
+
+	A trailing row that IS a bare prompt (per `_is_prompt_line`) is dropped —
+	that's a freshly-rendered prompt below the command output. A content row
+	that merely ends in a prompt character (e.g. `"cost: $"`, `"price: 5%"`)
+	is CONTENT and MUST be kept verbatim: stripping the tail char there
+	erased real data (#331).
+	"""
 	out = list(lines)
-	# Drop a trailing prompt row (may happen when a fresh prompt rendered below output).
-	if out and _is_prompt_line(out[-1]):
-		out.pop()
-	# Strip the zsh no-newline `%` indicator: it may live alone on the last row,
-	# or be glued to the tail of the final content row.
-	if out:
-		tail = out[-1].rstrip()
-		if tail == '%':
-			# `%` alone → just remove the row; content above is preserved.
-			out.pop()
-		else:
-			# `noeol%` or `... %` → strip the trailing prompt-char (but only one).
-			for p in PROMPT_CHARS:
-				if tail.endswith(p):
-					trimmed = tail[: -len(p)].rstrip()
-					# Only apply the strip if we're not erasing the whole line — a
-					# bare prompt char here would already have been caught above.
-					out[-1] = trimmed
-					break
-	# Drop leading/trailing blank rows.
-	while out and not out[0].strip():
-		out.pop(0)
+	# Drop trailing blanks first so a `[..., '$', '']` shape collapses.
 	while out and not out[-1].strip():
 		out.pop()
+	# Drop a trailing bare-prompt row if one rendered after the output.
+	if out and _is_prompt_line(out[-1]):
+		out.pop()
+	# Drop any blanks re-exposed by the prompt pop, plus leading blanks.
+	while out and not out[-1].strip():
+		out.pop()
+	while out and not out[0].strip():
+		out.pop(0)
 	return out
 
 

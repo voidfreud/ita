@@ -216,9 +216,11 @@ Issues codified: #257, #268 (closed — promoted into this contract).
 Exactly one function owns prompt detection: `_core._is_prompt_line` (to live in `_screen.py` after the Phase 2 split).
 
 **Rules:**
-- A line is a prompt iff, after stripping NUL and trailing whitespace, it ends with one of the configured prompt characters (`$`, `%`, `#`, `>`, `❯`, `›`, plus user extensions via `ITA_PROMPT_CHARS`).
+- A line is a prompt iff, after stripping NUL and trailing whitespace, it is either (a) equal to a configured prompt character, or (b) ends with `<whitespace><prompt_char>` — i.e. the shell's prompt rendering with optional user/host/cwd decoration (`~ ❯`, `user@host %`).
+- Configured prompt characters: `$`, `%`, `#`, `>`, `❯`, `›`, plus user extensions via `ITA_PROMPT_CHARS`.
 - UTF-8 glyphs are safe: detection operates on decoded codepoints, not bytes.
-- Echo remnants (a command line echoed back by the shell) are NOT prompts. Detection must reject lines containing a prompt char followed by non-whitespace content.
+- Echo remnants (a command line echoed back by the shell, e.g. `$ ls`) are NOT prompts (#327). The trailing prompt char must not be followed by non-whitespace content.
+- Content whose tail is a prompt char glued to non-whitespace (`price: 5%`, `regex: ^foo$`) is CONTENT, not a prompt (#331). Trimming must preserve it verbatim.
 - Empty lines are not prompts.
 
 Regressions against this rule live under `@pytest.mark.regression` in `test_contracts.py`.
