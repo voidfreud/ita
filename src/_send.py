@@ -150,7 +150,9 @@ def run(cmd, timeout, lines, tail_n, use_json, persist, check_integration, stdin
 	exit code is always 0 (actual exit status is unavailable). Use `--stdin FILE`
 	(or `--stdin -` for stdin) to run a multi-line script as a single unit
 	(exit code of the last command). `--tail N` truncates output to the last N
-	lines with a truncation notice — useful for long test/build output."""
+	lines with a truncation notice — useful for long test/build output.
+	On timeout the process exits 124 (GNU timeout convention); --json envelope
+	also reports exit_code=124."""
 	# #137: stdin synthesizes `cmd` from a multi-line script, then falls through
 	# to the regular run pipeline so exit-code capture, timeout, and output
 	# scoping all work identically. Heredoc delimiter is uniquified below using
@@ -281,7 +283,7 @@ def run(cmd, timeout, lines, tail_n, use_json, persist, check_integration, stdin
 			# carrying it get dropped.
 			fallback = _fallback_output(contents, lines, tag=tag)
 			output_rows = fallback.split('\n') if fallback else []
-			output_rows.insert(0, '⚠ output may be incomplete — echo row scrolled off screen')
+			click.echo('⚠ output may be incomplete — echo row scrolled off screen', err=True)
 
 		# #126: explicit --tail N overrides the default lines cap and prepends
 		# a truncation notice when output was actually cut. Silent truncation
@@ -319,9 +321,9 @@ def run(cmd, timeout, lines, tail_n, use_json, persist, check_integration, stdin
 			suffix = ' (escalated past Ctrl+C)' if escalated else ''
 			click.echo(f"ita: timed out after {timeout}s{suffix}", err=True)
 
-	# Timeout is always a failure (rc=1). Otherwise propagate the command's own rc.
+	# Timeout exits 124 (GNU timeout convention). Otherwise propagate the command's own rc.
 	if timed_out:
-		sys.exit(1)
+		sys.exit(124)
 	if exit_code is not None and exit_code != 0:
 		sys.exit(exit_code)
 
@@ -373,7 +375,7 @@ def inject(data, is_hex, session_id, force):
 					f"Invalid hex data: {data!r}. Use two-character pairs (e.g. '03' for Ctrl+C).") from e
 		else:
 			try:
-				raw = data.encode('utf-8').decode('unicode_escape').encode('latin-1')
+				raw = data.encode('utf-8')
 			except (UnicodeDecodeError, UnicodeEncodeError) as e:
 				raise click.ClickException(
 					f"Cannot encode {data!r}: {e}. "
