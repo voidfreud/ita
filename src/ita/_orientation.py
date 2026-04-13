@@ -6,6 +6,7 @@ import iterm2
 from ._core import cli, run_iterm, strip, __version__, \
 	add_protected, remove_protected, get_protected, resolve_session, \
 	parse_filter, match_filter
+from ._envelope import ita_command
 
 
 @cli.command()
@@ -114,24 +115,43 @@ def version():
 @click.option('-s', '--session', 'session_id', default=None,
 	help='Session to protect.')
 @click.option('--list', 'list_only', is_flag=True, help='List all protected sessions.')
-def protect(session_id, list_only):
+@click.option('--json', 'use_json', is_flag=True,
+	help='Emit CONTRACT §4 envelope on stdout.')
+@ita_command(op='protect')
+def protect(session_id, list_only, use_json):
 	"""Mark a session as protected — write commands (run, send, key, inject, close)
 	will refuse to target it without --force.  Use this to guard the Claude Code
-	terminal or any session you don't want accidentally modified."""
+	terminal or any session you don't want accidentally modified.
+
+	Emits a CONTRACT §4 envelope on --json. Plain mode keeps the classic
+	stderr 'Protected: <id>' confirmation via the decorator's success line
+	(envelope.error=null, no body stdout)."""
 	if list_only:
-		ids = get_protected()
-		if ids:
-			for sid in sorted(ids):
-				click.echo(sid)
-		else:
-			click.echo("No protected sessions.")
-		return
+		ids = sorted(get_protected())
+		if not use_json:
+			if ids:
+				for sid in ids:
+					click.echo(sid)
+			else:
+				click.echo("No protected sessions.")
+		# Read-only sub-path: the envelope will still fire, but state_*
+		# stays None (decorator honours mutator=True default; protect --list
+		# simply doesn't mutate, so state fields are legitimately null).
+		return {"data": {"protected": ids}, "target": None}
 	async def _resolve(connection):
 		session = await resolve_session(connection, session_id)
 		return session.session_id
 	sid = run_iterm(_resolve)
+	was_protected = sid in get_protected()
 	add_protected(sid)
-	click.echo(f"Protected: {sid}")
+	if not use_json:
+		click.echo(f"Protected: {sid}")
+	return {
+		"target": {"session": sid},
+		"state_before": "protected" if was_protected else "unprotected",
+		"state_after": "protected",
+		"data": {"session_id": sid},
+	}
 
 
 @cli.command()

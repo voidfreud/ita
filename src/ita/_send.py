@@ -10,6 +10,7 @@ import click
 import iterm2
 from ._core import (cli, run_iterm, resolve_session, strip, PROMPT_CHARS,
 	last_non_empty_index, check_protected, session_writelock, _is_prompt_line)
+from ._envelope import ita_command, ItaError
 
 
 def _trim_output_lines(lines: list[str]) -> list[str]:
@@ -139,6 +140,7 @@ async def _has_shell_integration(session) -> bool:
 			 'capture exit code of last command. (#137)')
 @click.option('-s', '--session', 'session_id', default=None)
 @click.option('--force', is_flag=True, help='Override protected-session guard.')
+@ita_command(op='run')
 def run(cmd, timeout, lines, tail_n, use_json, persist, check_integration, stdin_file, session_id, force):
 	"""Send command, wait for completion, return scoped output and exit code.
 	By default the command runs in a subshell so `exit`, `cd`, and env mutations
@@ -301,31 +303,49 @@ def run(cmd, timeout, lines, tail_n, use_json, persist, check_integration, stdin
 
 	output, elapsed_ms, exit_code, timed_out, integration_ok, escalated = run_iterm(_run)
 
-	if use_json:
-		# #144: when shell integration is missing, exit_code is genuinely
-		# unknowable — emit JSON `null` rather than a -1 sentinel so callers
-		# can distinguish "succeeded with code 0" from "could not determine".
-		# 124 is the GNU `timeout` convention for "command timed out".
-		json_exit = 124 if timed_out else exit_code  # may be None
-		click.echo(json.dumps({
-			'output': output,
-			'elapsed_ms': elapsed_ms,
-			'exit_code': json_exit,
-			'timed_out': timed_out,
-			'escalated': bool(escalated),
-			'shell_integration': bool(integration_ok),
-		}))
-	else:
-		click.echo(output)
-		if timed_out:
-			suffix = ' (escalated past Ctrl+C)' if escalated else ''
-			click.echo(f"ita: timed out after {timeout}s{suffix}", err=True)
+	# Resolve target session id for envelope (re-resolve cheaply via params;
+	# the body already proved it exists, so this is best-effort).
+	target = {"session": session_id} if session_id else None
 
-	# Timeout exits 124 (GNU timeout convention). Otherwise propagate the command's own rc.
+	if use_json:
+		# CONTRACT §6: timeout -> rc=4. The decorator turns ItaError into
+		# the envelope's error block + maps to EXIT_CODES['timeout']=4. The
+		# inner command's own exit_code rides in `data.exit_code` (may be
+		# null when shell integration is missing — preserved from #144).
+		if timed_out:
+			raise ItaError("timeout",
+				f"timed out after {timeout}s" +
+				(" (escalated past Ctrl+C)" if escalated else ""))
+		return {
+			"target": target,
+			"state_before": "ready",
+			"state_after": "ready",
+			"data": {
+				"output": output,
+				"elapsed_ms": elapsed_ms,
+				"exit_code": exit_code,
+				"timed_out": timed_out,
+				"escalated": bool(escalated),
+				"shell_integration": bool(integration_ok),
+			},
+		}
+
+	# Plain mode: preserve the original UX exactly — output to stdout,
+	# inner-rc propagation to ita's exit code (124 on timeout, otherwise
+	# the inner command's rc). The decorator stays silent on success in
+	# plain mode, so this echo path is unchanged from pre-decorator.
+	# Documented divergence: plain-mode timeout exits 124 (GNU timeout
+	# convention) while --json emits §6 timeout (rc=4). Plain-mode
+	# migration to rc=4 is queued for a follow-up PR; see CONTRACT §6
+	# amendment in this PR.
+	click.echo(output)
 	if timed_out:
+		suffix = ' (escalated past Ctrl+C)' if escalated else ''
+		click.echo(f"ita: timed out after {timeout}s{suffix}", err=True)
 		sys.exit(124)
 	if exit_code is not None and exit_code != 0:
 		sys.exit(exit_code)
+	return None
 
 
 @cli.command()

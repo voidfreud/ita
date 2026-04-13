@@ -171,11 +171,17 @@ def ita_command(op: str, *, mutator: bool = True):
 					data={}, use_json=use_json, mutator=mutator,
 				)
 				sys.exit(e.exit_code)
+			except click.UsageError:
+				# Click's UsageError (missing arg, bad option) is its own
+				# concern — it owns rc=2 and the canonical 'Usage:' help
+				# rendering. Don't intercept; let standalone_mode handling
+				# upstream (or Click itself) render and exit.
+				raise
 			except click.ClickException as e:
-				# Legacy path: any non-Ita ClickException is surfaced as
-				# bad-args (rc=6). Migrate call sites to raise ItaError with
-				# a sharper code when the semantics are clearer than "bad
-				# input".
+				# Legacy path: any non-Ita, non-Usage ClickException is
+				# surfaced as bad-args (rc=6). Migrate call sites to raise
+				# ItaError with a sharper code when semantics are clearer
+				# than "bad input".
 				reason = e.format_message() if hasattr(e, "format_message") else str(e)
 				elapsed_ms = int((time.monotonic() - start) * 1000)
 				emit_envelope(

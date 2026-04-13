@@ -7,6 +7,7 @@ import iterm2
 from ._core import (cli, run_iterm, resolve_session, strip, read_session_lines,
 	check_protected, _all_sessions, parse_filter, match_filter,
 	session_writelock, _SENTINEL_RE)
+from ._envelope import ita_command
 
 
 async def _fresh_name(session) -> str:
@@ -204,12 +205,20 @@ def _reject_combo(session_id, where, all_flag):
 @click.option('--all', 'all_flag', is_flag=True, help='Bulk close every session (#125).')
 @click.option('-q', '--quiet', is_flag=True, help='Suppress confirmation message')
 @click.option('--dry-run', is_flag=True, help='Print what would be closed without doing it')
+@click.option('--json', 'use_json', is_flag=True,
+			  help='Emit CONTRACT §4 envelope on stdout (single-session path only).')
 @click.option('--force', is_flag=True,
 			  help='Override protected-session guard (also required with --all to close protected).')
-def close(session_id, filter_expr, all_flag, quiet, dry_run, force):
-	"""Close a session (or many via --where / --all)."""
+@ita_command(op='close')
+def close(session_id, filter_expr, all_flag, quiet, dry_run, use_json, force):
+	"""Close a session (or many via --where / --all).
+
+	--json emits a CONTRACT §4 envelope on the single-session path. Bulk
+	paths (--where / --all) still produce plain per-member lines for now;
+	a future PR will give them stream-envelope semantics (§11)."""
+	from ._envelope import ItaError
 	if session_id is not None and not session_id.strip():
-		raise click.ClickException("--session cannot be empty")
+		raise ItaError("bad-args", "--session cannot be empty")
 	bulk = bool(filter_expr or all_flag)
 	if not bulk:
 		closed_id = None
@@ -222,14 +231,19 @@ def close(session_id, filter_expr, all_flag, quiet, dry_run, force):
 				with session_writelock(session.session_id, force=force):
 					await session.async_close(force=True)
 		run_iterm(_run)
-		if closed_id:
+		if closed_id and not use_json:
 			if dry_run:
 				click.echo(f"Would close: {closed_id}")
 			elif not quiet:
 				click.echo(f"Closed: {closed_id}", err=True)
 			else:
 				click.echo(closed_id)
-		return
+		return {
+			"target": {"session": closed_id},
+			"state_before": "ready",
+			"state_after": "dead" if not dry_run else "ready",
+			"data": {"session_id": closed_id, "dry_run": dry_run},
+		}
 
 	_reject_combo(session_id, filter_expr, all_flag)
 	if filter_expr:
