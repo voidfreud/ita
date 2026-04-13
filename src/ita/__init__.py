@@ -7,6 +7,48 @@ entrypoint (`ita = "ita:cli"` in pyproject.toml) imports this and calls
 `cli()`.
 """
 from ._core import cli  # re-exported at package level for `ita:cli`
+from ._envelope import EXIT_CODES, ItaError, SCHEMA_VERSION  # noqa: F401
+
+
+def main():
+	"""Console-script entrypoint. Wraps cli() so an uncaught ItaError
+	(raised by a non-migrated command via resolve_session) still exits
+	with the §6-mapped code AND emits a §4 envelope on stdout when --json
+	was on argv. Migrated @ita_command bodies emit the envelope themselves
+	and never reach this fallback. See _envelope.py."""
+	import json as _json
+	import sys as _sys
+	import click as _click
+
+	def _argv_uses_json() -> bool:
+		return any(a in ("--json", "--as-json") for a in _sys.argv[1:])
+
+	try:
+		cli(standalone_mode=False)
+	except ItaError as e:
+		if _argv_uses_json():
+			envelope = {
+				"schema": SCHEMA_VERSION,
+				"ok": False,
+				"op": _sys.argv[1] if len(_sys.argv) > 1 else "",
+				"target": None,
+				"state_before": None,
+				"state_after": None,
+				"elapsed_ms": 0,
+				"warnings": [],
+				"error": {"code": e.code, "reason": e.reason},
+				"data": {},
+			}
+			_sys.stdout.write(_json.dumps(envelope) + "\n")
+		else:
+			_sys.stderr.write(f"ita: {e.reason}\n")
+		_sys.exit(EXIT_CODES[e.code])
+	except _click.ClickException as e:
+		e.show()
+		_sys.exit(e.exit_code)
+	except _click.exceptions.Abort:
+		_sys.stderr.write("Aborted!\n")
+		_sys.exit(1)
 
 # Import command modules for their side-effects (each registers on `cli`).
 # noqa everywhere because these are unused at the name level.
