@@ -366,7 +366,7 @@ Issues codified: #258, #285, #220.
 
 ## §14 The six agent-critical invariants
 
-Iterated by `tests/test_contracts.py` over every command in `ita commands --json`.
+Iterated by `tests/test_contract_matrix.py` (parametrized invariant matrix, rules 1-5) and `tests/test_contracts.py` (integration-lane surface sweep) over every command in `ita commands --json`.
 
 1. **Never lie to the caller.** No command reports success when its effect didn't happen. No envelope has `ok=true` with `error != null`.
 2. **No stdout pollution, no silent corruption of input.** Stdout obeys §3 in every mode (no ANSI in non-TTY, no NUL, no traceback). Commands that transmit caller-supplied text (`inject`, `send`) are UTF-8 end-to-end: every valid Unicode codepoint — including astral-plane chars above U+FFFF — survives verbatim. Un-encodable input (lone surrogates) fails loudly with `bad-args` (rc=6) rather than being silently mangled or replaced (#229).
