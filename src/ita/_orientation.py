@@ -7,6 +7,7 @@ from ._core import cli, run_iterm, strip, __version__, \
 	add_protected, remove_protected, get_protected, resolve_session, \
 	parse_filter, match_filter
 from ._envelope import ita_command
+from ._state import derive_state
 
 
 @cli.command()
@@ -30,6 +31,7 @@ def status(use_json, ids_only, fast, filter_expr):
 					else:
 						proc = strip(await session.async_get_variable('jobName') or '')
 						path = strip(await session.async_get_variable('path') or '')
+					state = await derive_state(app, session)
 					sessions.append({
 						'session_id': session.session_id,
 						'session_name': strip(session.name or ''),
@@ -37,6 +39,7 @@ def status(use_json, ids_only, fast, filter_expr):
 						'path': path,
 						'window_id': window.window_id,
 						'tab_id': tab.tab_id,
+						'state': state,
 					})
 		return sessions
 
@@ -224,6 +227,7 @@ def session_info(session_id, use_json):
 			t = app.get_tab_by_id(tab_id)
 			if t is not None:
 				tmux_window_id = t.tmux_window_id
+		state = await derive_state(app, target)
 		return {
 			'session_id': target.session_id,
 			'name': strip(target.name or ''),
@@ -239,6 +243,7 @@ def session_info(session_id, use_json):
 			'tmux_window_id': tmux_window_id,
 			'is_current': target.session_id == current_sid,
 			'broadcast_domains': broadcast_domains,
+			'state': state,
 		}
 
 	info = run_iterm(_run)

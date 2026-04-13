@@ -9,6 +9,7 @@ import click
 import iterm2
 from ._core import cli, run_iterm, strip, parse_filter, match_filter
 from ._output import _clean_lines
+from ._state import derive_state
 
 
 async def _tail_lines(session, n: int) -> list[str]:
@@ -56,6 +57,7 @@ async def _gather(connection, lines: int, include_preview: bool,
 			for session in tab.sessions:
 				proc = strip(await session.async_get_variable('jobName') or '')
 				path = strip(await session.async_get_variable('path') or '')
+				state = await derive_state(app, session)
 				s_entry = {
 					'session_id': session.session_id,
 					'session_name': strip(session.name or ''),
@@ -64,6 +66,7 @@ async def _gather(connection, lines: int, include_preview: bool,
 					'window_id': window.window_id,
 					'tab_id': tab.tab_id,
 					'is_current': session.session_id == current_sid,
+					'state': state,
 				}
 				# Filter — evaluated against the per-session record
 				if filter_kov is not None:
