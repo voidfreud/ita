@@ -410,24 +410,30 @@ def broadcast_on(session_id, window_id, replace, quiet, dry_run, confirm, yes):
 			session = await resolve_session(connection, session_id)
 			# If there's already a domain, extend the first one; else create new.
 			if existing:
-				target = existing[0]
-				target.add_session(session)
+				target_domain = existing[0]
+				target_domain.add_session(session)
 				domains = existing
 			else:
 				d = iterm2.BroadcastDomain()
 				d.add_session(session)
 				domains = [d]
 			await iterm2.async_set_broadcast_domains(connection, domains)
-			return
+		else:
+			w = app.get_window_by_id(window_id) if window_id else app.current_terminal_window
+			if not w:
+				raise click.ClickException("No window context. Specify --window or a session.")
+			new_domain = iterm2.BroadcastDomain()
+			for tab in w.tabs:
+				for sess in tab.sessions:
+					new_domain.add_session(sess)
+			await iterm2.async_set_broadcast_domains(connection, existing + [new_domain])
 
-		w = app.get_window_by_id(window_id) if window_id else app.current_terminal_window
-		if not w:
-			return
-		new_domain = iterm2.BroadcastDomain()
-		for tab in w.tabs:
-			for session in tab.sessions:
-				new_domain.add_session(session)
-		await iterm2.async_set_broadcast_domains(connection, existing + [new_domain])
+		# Verify the API actually persisted the change (#249).
+		await app.async_refresh_broadcast_domains()
+		if not app.broadcast_domains:
+			raise click.ClickException(
+				"Broadcast enabled call succeeded but no domains were registered. "
+				"iTerm2 may have silently rejected the request.")
 	run_iterm(_run)
 	success_echo(f"Broadcast enabled: {target}", quiet=quiet)
 
@@ -436,12 +442,19 @@ def broadcast_on(session_id, window_id, replace, quiet, dry_run, confirm, yes):
 @click.argument('text')
 @click.option('--newline/--no-newline', default=True,
 			  help='Append a newline so the shell executes (default: true).')
-def broadcast_send(text, newline):
+@click.option('--json', 'use_json', is_flag=True,
+			  help='Emit per-session {session_id, ok, error} array (#279).')
+@click.option('--on-dead', type=click.Choice(['fail', 'skip', 'prune']),
+			  default='skip',
+			  help='Behaviour when a session is unreachable: fail/skip/prune (#285).')
+def broadcast_send(text, newline, use_json, on_dead):
 	"""Send TEXT to every session in every active broadcast domain (#147).
 
 	iTerm2's broadcast-domain feature mirrors *keyboard* input, not API writes,
 	so `ita send` bypasses the domain. This command fills that gap by iterating
-	the current domains and calling async_send_text on each member."""
+	the current domains and calling async_send_text on each member.
+
+	Sessions shared by multiple domains are sent to only once (#285)."""
 	payload = text + ('\n' if newline else '')
 	async def _run(connection):
 		app = await iterm2.async_get_app(connection)
@@ -450,14 +463,57 @@ def broadcast_send(text, newline):
 		if not domains:
 			raise click.ClickException(
 				"No active broadcast domains. Use `ita broadcast on` first.")
-		sent = []
+
+		# Deduplicate across domains (#285): keep first occurrence by session_id.
+		seen_ids: set = set()
+		unique_sessions = []
 		for d in domains:
 			for s in d.sessions:
+				if s.session_id not in seen_ids:
+					seen_ids.add(s.session_id)
+					unique_sessions.append(s)
+
+		results = []
+		dead_ids: set = set()
+		for s in unique_sessions:
+			try:
 				await s.async_send_text(payload)
-				sent.append(s.session_id)
-		return sent
-	sent = run_iterm(_run) or []
-	click.echo(f"Sent to {len(sent)} session(s).")
+				results.append({'session_id': s.session_id, 'ok': True, 'error': None})
+			except Exception as exc:
+				err = str(exc)
+				if on_dead == 'fail':
+					raise click.ClickException(
+						f"Session {s.session_id!r} unreachable: {err}")
+				elif on_dead == 'prune':
+					dead_ids.add(s.session_id)
+					import click as _click
+					_click.echo(f"Warning: pruning dead session {s.session_id}", err=True)
+				else:  # skip
+					import sys as _sys
+					print(f"Warning: skipping dead session {s.session_id}: {err}",
+						  file=_sys.stderr)
+				results.append({'session_id': s.session_id, 'ok': False, 'error': err})
+
+		if dead_ids:
+			# Re-set domains without the pruned sessions.
+			surviving = []
+			for d in domains:
+				dom = iterm2.BroadcastDomain()
+				for s in d.sessions:
+					if s.session_id not in dead_ids:
+						dom.add_session(s)
+				if dom.sessions:
+					surviving.append(dom)
+			await iterm2.async_set_broadcast_domains(connection, surviving)
+
+		return results
+
+	results = run_iterm(_run) or []
+	if use_json:
+		click.echo(json.dumps(results, indent=2))
+	else:
+		ok_count = sum(1 for r in results if r['ok'])
+		click.echo(f"Sent to {ok_count}/{len(results)} session(s).")
 
 
 @broadcast.command('off')
@@ -482,8 +538,11 @@ def broadcast_off(quiet, dry_run, confirm, yes):
 @broadcast.command('add')
 @click.argument('session_ids', nargs=-1, required=True)
 def broadcast_add(session_ids):
-	"""Group sessions into a broadcast domain."""
-	# Deduplicate while preserving order
+	"""Add sessions to the first existing broadcast domain, or create a new one (#220).
+
+	Merges into existing domains rather than replacing them. Use `broadcast set`
+	for an explicit atomic replace."""
+	# Deduplicate input while preserving order.
 	seen = set()
 	unique_ids = []
 	for sid in session_ids:
@@ -493,14 +552,32 @@ def broadcast_add(session_ids):
 		unique_ids.append(sid)
 	async def _run(connection):
 		app = await iterm2.async_get_app(connection)
-		domain = iterm2.BroadcastDomain()
+		await app.async_refresh_broadcast_domains()
+		existing = list(app.broadcast_domains)
+
+		# Resolve session objects.
+		sessions = []
 		for sid in unique_ids:
 			s = app.get_session_by_id(sid)
 			if not s:
 				raise click.ClickException(
 					f"Session {sid!r} not found. Run 'ita status' to list sessions.")
-			domain.add_session(s)
-		await iterm2.async_set_broadcast_domains(connection, [domain])
+			sessions.append(s)
+
+		if existing:
+			# Merge: add to first domain, skip already-present sessions (#220).
+			target_domain = existing[0]
+			already = {s.session_id for s in target_domain.sessions}
+			for s in sessions:
+				if s.session_id not in already:
+					target_domain.add_session(s)
+					already.add(s.session_id)
+			await iterm2.async_set_broadcast_domains(connection, existing)
+		else:
+			domain = iterm2.BroadcastDomain()
+			for s in sessions:
+				domain.add_session(s)
+			await iterm2.async_set_broadcast_domains(connection, [domain])
 	run_iterm(_run)
 
 
