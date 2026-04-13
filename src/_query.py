@@ -77,8 +77,10 @@ def wait(pattern, fixed_string, timeout, use_json, session_id):
 			{'matched': found, 'line': matched_line, 'elapsed_ms': elapsed_ms},
 			ensure_ascii=False,
 		))
-	elif not found and pattern:
-		raise click.ClickException(f"Timeout: pattern {pattern!r} not found within {timeout}s")
+	elif not found:
+		# #231: text mode timeout must be distinguishable from a match (rc != 0).
+		click.echo("timeout", err=True)
+		raise SystemExit(1)
 
 
 @cli.command()
@@ -145,7 +147,11 @@ def get_prompt(session_id, use_json):
 
 	result = run_iterm(_run)
 	if use_json:
-		click.echo(json.dumps(result if result else {}, ensure_ascii=False))
+		if result:
+			result['present'] = True
+			click.echo(json.dumps(result, ensure_ascii=False))
+		else:
+			click.echo(json.dumps({'cwd': None, 'command': None, 'exit_code': None, 'present': False}, ensure_ascii=False))
 	elif result:
 		click.echo(f"cwd:      {result['cwd']}")
 		click.echo(f"command:  {result['command']}")

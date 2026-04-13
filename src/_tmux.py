@@ -56,8 +56,7 @@ def tmux_stop():
 	async def _run(connection):
 		conns = await iterm2.tmux.async_get_tmux_connections(connection)
 		if not conns:
-			click.echo("No active tmux connection.", err=True)
-			return []
+			raise click.ClickException("No active tmux connection.")
 		closed = []
 		for c in conns:
 			try:

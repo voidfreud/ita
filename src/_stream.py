@@ -35,12 +35,22 @@ async def _stream_session(session, json_stream: bool, prefix: str = '', name: st
 		return
 
 	prev_snapshot: tuple[str, ...] = tuple(initial)
+	prev_set: frozenset[str] = frozenset(prev_snapshot)
 	async with session.get_screen_streamer() as streamer:
 		while True:
 			contents = await streamer.async_get()
 			snapshot = tuple(_clean_lines(contents))
 			if snapshot != prev_snapshot:
-				new_lines = list(snapshot[len(prev_snapshot):])
+				if len(snapshot) < len(prev_snapshot):
+					# Screen was cleared/reset: emit a reset marker then the full
+					# new snapshot so consumers can detect the discontinuity (#230).
+					new_lines = ['<<screen reset>>'] + list(snapshot)
+				else:
+					# Emit lines that appear in the new snapshot but weren't in prev.
+					# Using set difference handles clears/rewrites/scrolls correctly;
+					# slice-based growth assumption broke when content was overwritten.
+					new_set = frozenset(snapshot)
+					new_lines = [l for l in snapshot if l not in prev_set]
 				if new_lines:
 					if json_stream:
 						payload = {'session_id': session.session_id, 'lines': new_lines, 'timestamp_ms': _ts()}
@@ -51,6 +61,7 @@ async def _stream_session(session, json_stream: bool, prefix: str = '', name: st
 						for line in new_lines:
 							click.echo(f"{prefix}{line}" if prefix else line)
 				prev_snapshot = snapshot
+				prev_set = frozenset(snapshot)
 			last_idx = last_non_empty_index(contents)
 			if last_idx < 0:
 				continue

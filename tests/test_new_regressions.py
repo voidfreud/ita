@@ -101,7 +101,6 @@ def test_issue_285_broadcast_duplicate_delivery(session):
 
 # ── #286 layouts save --window silent no-op ──────────────────────────────────
 
-@pytest.mark.known_broken
 def test_issue_286_layouts_save_window_no_current_window():
 	"""#286: `ita layouts save --window` with no current window exits 0 and prints "Saved:".
 	Expected fix: must exit non-zero when no window context exists."""
@@ -164,7 +163,6 @@ def test_issue_290_run_json_timeout_rc(session):
 
 # ── #247 on prompt silent timeout ────────────────────────────────────────────
 
-@pytest.mark.known_broken
 def test_issue_247_on_prompt_timeout_rc(session):
 	"""#247: `ita on prompt -t 1` with no prompt event exits 0 silently.
 	Expected fix: must exit non-zero (e.g. 124) on timeout."""

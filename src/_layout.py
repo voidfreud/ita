@@ -66,8 +66,10 @@ def window_activate(window_id):
 	async def _run(connection):
 		app = await iterm2.async_get_app(connection)
 		w = app.get_window_by_id(window_id) if window_id else app.current_terminal_window
-		if w:
-			await w.async_activate()
+		if not w:
+			raise click.ClickException(
+				f"Window {window_id!r} not found" if window_id else "No current window")
+		await w.async_activate()
 	run_iterm(_run)
 
 

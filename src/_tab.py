@@ -70,7 +70,14 @@ def tab_activate(tab_id_opt):
 			return
 		except ValueError:
 			pass
-		matches = [tab for w in app.windows for tab in w.tabs if resolved_id.lower() in (tab.tab_id or '').lower()]
+		async def _get_title(t):
+			return await t.async_get_variable('title') or ''
+		import asyncio
+		titles = await asyncio.gather(*[_get_title(t) for w in app.windows for t in w.tabs])
+		all_tabs = [t for w in app.windows for t in w.tabs]
+		matches = [t for t, title in zip(all_tabs, titles) if resolved_id.lower() in title.lower()]
+		if not matches:
+			matches = [t for t in all_tabs if resolved_id.lower() in (t.tab_id or '').lower()]
 		if len(matches) == 1:
 			await matches[0].async_activate(order_window_front=True)
 			return
@@ -177,7 +184,7 @@ def tab_detach(tab_id, index):
 			app.current_terminal_window.current_tab if app.current_terminal_window else None)
 		if not t:
 			raise click.ClickException("Tab not found")
-		_, w = app.get_window_and_tab_for_session(t.current_session) if t.current_session else (None, None)
+		w, _ = app.get_window_and_tab_for_session(t.current_session) if t.current_session else (None, None)
 		if index is not None:
 			if not w:
 				raise click.ClickException("Cannot find window for tab")
@@ -191,10 +198,22 @@ def tab_detach(tab_id, index):
 
 @tab.command('move')
 @click.argument('tab_id', required=False)
-@click.option('--to', 'index', type=int, default=None, help='Reorder to index within window')
+@click.option('--to', 'index', type=int, required=True, help='Reorder to index within window')
 def tab_move(tab_id, index):
-	"""Reorder tab position. Use 'tab detach' to detach into its own window."""
-	return tab_detach(tab_id, index)
+	"""Reorder tab to position INDEX within its current window. Use 'tab detach' to move to a new window."""
+	async def _run(connection):
+		app = await iterm2.async_get_app(connection)
+		t = app.get_tab_by_id(tab_id) if tab_id else (
+			app.current_terminal_window.current_tab if app.current_terminal_window else None)
+		if not t:
+			raise click.ClickException("Tab not found")
+		w, _ = app.get_window_and_tab_for_session(t.current_session) if t.current_session else (None, None)
+		if not w:
+			raise click.ClickException("Cannot find window for tab")
+		if not (0 <= index < len(w.tabs)):
+			raise click.ClickException(f"Index {index} out of range [0, {len(w.tabs) - 1}]")
+		await t.async_move_to_position(index)
+	run_iterm(_run)
 
 
 @tab.command('profile')
