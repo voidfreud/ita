@@ -293,21 +293,20 @@ def run(cmd, timeout, lines, tail_n, use_json, persist, check_integration, stdin
 			output_rows = fallback.split('\n') if fallback else []
 			click.echo('⚠ output may be incomplete — echo row scrolled off screen', err=True)
 
-		# #126: explicit --tail N overrides the default lines cap and prepends
-		# a truncation notice when output was actually cut. Silent truncation
-		# from -n/--lines is preserved for backwards compatibility.
+		# #126: explicit --tail N overrides the default lines cap. #248:
+		# the truncation notice does NOT go on stdout (that breaks `run -n N`'s
+		# N-line contract). Plain mode surfaces it on stderr; JSON mode
+		# exposes `data.truncated_from` instead.
 		truncated_from = None
 		if tail_n is not None and len(output_rows) > tail_n:
 			truncated_from = len(output_rows)
 			output_rows = output_rows[-tail_n:]
 
 		output = '\n'.join(output_rows)
-		if truncated_from is not None:
-			output = f"[truncated: {truncated_from} lines]\n" + output
 
-		return output, elapsed_ms, exit_code, timed_out, integration_ok, escalated
+		return output, elapsed_ms, exit_code, timed_out, integration_ok, escalated, truncated_from
 
-	output, elapsed_ms, exit_code, timed_out, integration_ok, escalated = run_iterm(_run)
+	output, elapsed_ms, exit_code, timed_out, integration_ok, escalated, truncated_from = run_iterm(_run)
 
 	# Resolve target session id for envelope (re-resolve cheaply via params;
 	# the body already proved it exists, so this is best-effort).
@@ -333,6 +332,7 @@ def run(cmd, timeout, lines, tail_n, use_json, persist, check_integration, stdin
 				"timed_out": timed_out,
 				"escalated": bool(escalated),
 				"shell_integration": bool(integration_ok),
+				"truncated_from": truncated_from,
 			},
 		}
 
@@ -345,6 +345,9 @@ def run(cmd, timeout, lines, tail_n, use_json, persist, check_integration, stdin
 	# migration to rc=4 is queued for a follow-up PR; see CONTRACT §6
 	# amendment in this PR.
 	click.echo(output)
+	if truncated_from is not None:
+		# #248: notice lives on stderr so stdout stays at exactly `lines` rows.
+		click.echo(f"ita: truncated from {truncated_from} lines", err=True)
 	if timed_out:
 		suffix = ' (escalated past Ctrl+C)' if escalated else ''
 		click.echo(f"ita: timed out after {timeout}s{suffix}", err=True)
