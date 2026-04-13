@@ -24,6 +24,9 @@ def session_factory(request):
 
 	def create(n: int = 1) -> list[str]:
 		safe_base = (TEST_SESSION_PREFIX + request.node.name[:20]).replace(' ', '_')
+		# TESTING.md §4.1 L2: register each successful sid into all_sids
+		# IMMEDIATELY (not after the batch). If create() raises mid-batch,
+		# the addfinalizer still cleans up everything we managed to spin up.
 
 		def _spin(i: int) -> str:
 			name = f"{safe_base}-{i}"
@@ -31,12 +34,17 @@ def session_factory(request):
 			assert r.returncode == 0, f"session_factory: failed to create session {i}: {r.stderr}"
 			sid = _extract_sid(r.stdout)
 			assert sid, f"session_factory: empty session ID for session {i}"
+			all_sids.append(sid)  # register before returning, in case caller raises
 			return sid
 
 		with concurrent.futures.ThreadPoolExecutor(max_workers=max(1, n)) as pool:
-			sids = list(pool.map(_spin, range(n)))
+			# Use as_completed instead of map so partial successes are kept
+			# even when one of the futures raises.
+			futures = [pool.submit(_spin, i) for i in range(n)]
+			sids: list[str] = []
+			for f in concurrent.futures.as_completed(futures):
+				sids.append(f.result())  # may raise; partials already in all_sids
 
-		all_sids.extend(sids)
 		return sids
 
 	return create

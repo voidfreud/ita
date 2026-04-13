@@ -1,4 +1,15 @@
-"""Shared fixtures, helpers, and markers for the ita test suite."""
+"""Shared fixtures, helpers, and markers for the ita test suite.
+
+Cleanup discipline (TESTING.md §4.1, #341):
+  L1 — per-test addfinalizer in `session` / `shared_session`
+  L2 — try/finally inside multi-create fixtures (session_factory etc.)
+  L3 — atexit hook that closes every `ita-test-*` session
+  L4 — hard-ceiling sentinel: > 50 ita-test-* sessions aborts the run
+  L5 — prefer tabs over windows (smaller blast radius per leak)
+
+Layers L3 + L4 added here as the catastrophic-leak circuit breaker.
+"""
+import atexit
 import pytest
 
 from helpers import (  # noqa: F401
@@ -6,6 +17,57 @@ from helpers import (  # noqa: F401
 	_open_test_sessions, _close_test_sessions,
 	TEST_SESSION_PREFIX,
 )
+
+
+# ── L3: atexit safety net ──────────────────────────────────────────────────
+# Runs even on signal / unhandled exception / pytest internal crash.
+# Belt-and-braces: if every other layer fails, this still closes orphans.
+
+def _atexit_close_test_sessions():
+	"""Last-ditch cleanup. Idempotent. Best-effort: swallows all errors so
+	atexit can never itself crash the interpreter."""
+	try:
+		survivors = _open_test_sessions()
+		if survivors:
+			_close_test_sessions(survivors)
+	except Exception:
+		pass
+
+atexit.register(_atexit_close_test_sessions)
+
+
+# ── L4: hard-ceiling sentinel ──────────────────────────────────────────────
+# Between tests, count `ita-test-*` sessions. If > LEAK_CEILING, abort the
+# entire pytest run loudly. Stops a leaky test from cascading into 500
+# sessions and crashing the host.
+
+LEAK_CEILING = 50
+
+
+def _count_test_sessions() -> int:
+	try:
+		return len(_open_test_sessions())
+	except Exception:
+		return 0
+
+
+def pytest_runtest_teardown(item, nextitem):
+	"""After every test, check the leak ceiling. Hard-abort the run if
+	exceeded — emergency-close survivors first so the abort itself doesn't
+	leave the machine in a worse state."""
+	count = _count_test_sessions()
+	if count > LEAK_CEILING:
+		try:
+			_close_test_sessions(_open_test_sessions())
+		except Exception:
+			pass
+		pytest.exit(
+			f"\n\n*** LEAK CEILING EXCEEDED: {count} ita-test-* sessions open "
+			f"(ceiling={LEAK_CEILING}) ***\n"
+			f"A test created sessions without cleaning them up. The run is "
+			f"aborted to protect the host machine. Last test: {item.nodeid}\n",
+			returncode=2,
+		)
 
 # Import fixtures from sub-package so pytest collects them.
 # hypothesis_profiles are registered at import time inside fixtures.environment.
