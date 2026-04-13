@@ -13,13 +13,8 @@ and the `cli` root. Names extracted to the modules above are re-exported here
 so existing `from _core import X` imports keep working; once each Phase 3 branch
 touches its module, it can import directly from the correct source.
 """
-import fcntl
 import json
-import os
 import sys
-import uuid
-from datetime import datetime, timezone
-from pathlib import Path
 from collections.abc import Awaitable, Callable
 from typing import Any
 
@@ -43,154 +38,13 @@ from ._envelope import (  # noqa: F401
 	ItaError,
 )
 
-# ── Session write-lock (#109) ──────────────────────────────────────────────
+# ── Session write-lock (#109) — moved to _lock.py (Phase 3) ────────────────
 #
-# Lightweight per-session exclusive lock so two concurrent ita invocations
-# (e.g. parallel Claude agents) can't interleave writes on the same session.
-# Held only for the duration of a single write command; a crashed invocation
-# leaves behind a stale record that the next caller reclaims via a live-PID
-# probe (os.kill(pid, 0)). ~/.ita_writelock JSON shape:
-#     {session_id: {"pid": int, "at": iso8601}}
-#
-# TODO (Phase 3 protection-lock branch): move to _lock.py.
-
-WRITELOCK_FILE = Path.home() / ".ita_writelock"
-# Cookies for locks acquired by this process instance; keyed by session_id.
-_held_cookies: dict[str, str] = {}
-
-
-def _load_writelocks() -> dict:
-	if not WRITELOCK_FILE.exists():
-		return {}
-	try:
-		return json.loads(WRITELOCK_FILE.read_text() or '{}')
-	except (json.JSONDecodeError, OSError):
-		return {}  # corrupt → treat empty; a write will overwrite cleanly
-
-
-def _save_writelocks(data: dict) -> None:
-	if data:
-		WRITELOCK_FILE.write_text(json.dumps(data, indent=2) + '\n')
-	else:
-		WRITELOCK_FILE.unlink(missing_ok=True)
-
-
-def _pid_alive(pid: int) -> bool:
-	"""True if a process with `pid` is alive. ProcessLookupError → dead;
-	PermissionError means something's there but we can't signal it → alive."""
-	if pid <= 0:
-		return False
-	try:
-		os.kill(pid, 0)
-		return True
-	except ProcessLookupError:
-		return False
-	except PermissionError:
-		return True
-
-
-def acquire_writelock(session_id: str) -> bool:
-	"""Try to claim the write-lock. Returns False if another *live* PID+cookie
-	holds it; stale locks (dead PID or no cookie) are silently reclaimed.
-
-	Owner identity is {pid, cookie} so same-parent invocations (#282) can't
-	collide: each process gets its own unique cookie written atomically via
-	fcntl.LOCK_EX (fixes TOCTOU, #197)."""
-	cookie = uuid.uuid4().hex
-	with open(WRITELOCK_FILE, 'a+') as f:
-		fcntl.flock(f, fcntl.LOCK_EX)
-		f.seek(0)
-		raw = f.read()
-		try:
-			data = json.loads(raw) if raw.strip() else {}
-		except json.JSONDecodeError:
-			data = {}
-		entry = data.get(session_id)
-		# Old-format entries (no cookie) are treated as stale and reclaimed.
-		if entry and entry.get('cookie') and _pid_alive(int(entry.get('pid', 0))):
-			return False
-		data[session_id] = {
-			'pid': os.getpid(),
-			'cookie': cookie,
-			'at': datetime.now(timezone.utc).isoformat(timespec='seconds'),
-		}
-		f.seek(0)
-		f.truncate()
-		f.write(json.dumps(data, indent=2) + '\n')
-	_held_cookies[session_id] = cookie
-	return True
-
-
-def release_writelock(session_id: str) -> None:
-	"""Release iff held by this process (matched by cookie). No-op otherwise, so safe in finally."""
-	data = _load_writelocks()
-	entry = data.get(session_id)
-	if entry:
-		stored_cookie = entry.get('cookie')
-		our_cookie = _held_cookies.get(session_id)
-		# New-format: must match cookie. Old-format (no cookie): fall back to pid.
-		if stored_cookie is not None:
-			if stored_cookie != our_cookie:
-				return
-		elif int(entry.get('pid', 0)) != os.getpid():
-			return
-		data.pop(session_id, None)
-		_held_cookies.pop(session_id, None)
-		_save_writelocks(data)
-
-
-def check_writelock(session_id: str, force: bool = False) -> None:
-	"""Raise ClickException if `session_id` is locked by another live PID.
-
-	Stale entries are NOT reclaimed here — acquire_writelock does that a
-	moment later. --force skips entirely (mirrors check_protected)."""
-	if force:
-		return
-	entry = _load_writelocks().get(session_id)
-	if not entry:
-		return
-	pid = int(entry.get('pid', 0))
-	if not _pid_alive(pid):
-		return  # stale — acquire_writelock will reclaim
-	raise click.ClickException(
-		f"Session {session_id[:8]}… is write-locked by pid {pid} "
-		f"(since {entry.get('at', '?')}). Use --force to override, "
-		f"or wait for the other ita invocation to finish."
-	)
-
-
-def get_writelocks() -> dict:
-	"""Current on-disk writelock map. Used by `ita lock --list`."""
-	return _load_writelocks()
-
-
-class session_writelock:
-	"""Context manager: check + acquire on enter, release on exit. Raises
-	ClickException if held by another live PID. --force bypasses entirely.
-	Exception-safe — release runs from __exit__ whether the body raised or
-	not, which is the whole point (a crashed write must not orphan a lock)."""
-	def __init__(self, session_id: str, force: bool = False):
-		self.session_id = session_id
-		self.force = force
-		self.held = False
-
-	def __enter__(self):
-		if self.force:
-			return self
-		check_writelock(self.session_id, force=False)
-		if not acquire_writelock(self.session_id):
-			# Race: between check and acquire, someone grabbed it.
-			raise click.ClickException(
-				f"Session {self.session_id[:8]}… was just write-locked by "
-				f"another ita invocation. Retry, or pass --force."
-			)
-		self.held = True
-		return self
-
-	def __exit__(self, exc_type, exc, tb):
-		if self.held:
-			release_writelock(self.session_id)
-		return False
+# Helpers live in _lock.py. Re-exported at the END of this module (after
+# `cli` is defined) so existing `from ._core import session_writelock`
+# imports keep working without a circular import (_lock imports _core.cli).
+# Phase 2 follow-up cleanup: migrate callers to `from ._lock import ...`
+# and drop this re-export shim.
 
 
 # ── Output helpers ─────────────────────────────────────────────────────────
@@ -363,3 +217,15 @@ __version__ = '0.7.0'
 def cli():
 	"""ita — agent-first iTerm2 control."""
 	pass
+
+
+# ── Back-compat re-exports for writelock helpers (moved to _lock.py) ───────
+# Phase 2 follow-up cleanup (#256-successor): migrate `from ._core import X`
+# call sites to `from ._lock import X` and drop this block. Placed at the
+# bottom so `_lock` can `from ._core import cli, run_iterm, ...` without a
+# circular import at module-load time.
+from ._lock import (  # noqa: E402, F401
+	WRITELOCK_FILE, _held_cookies, _load_writelocks, _save_writelocks,
+	_pid_alive, acquire_writelock, release_writelock, check_writelock,
+	get_writelocks, session_writelock,
+)
