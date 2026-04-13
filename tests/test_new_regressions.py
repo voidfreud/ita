@@ -61,8 +61,15 @@ def test_issue_283_clear_all_ignores_protected(session):
 def test_issue_284_tab_detach_to_tab_id(session):
 	"""#284: `tab detach --to <tab-id>` passes wrong object type internally.
 	Expected fix: detach target resolves to Tab, not Session."""
+	# Resolve the window of the fixture session so tab new has an explicit
+	# --window target (#342: no focus fallback in tab new).
+	import json as _json
+	r_st = ita('status', '--json', timeout=10)
+	entries = _json.loads(r_st.stdout)
+	match = next(e for e in entries if e.get('session_id') == session)
+	window_id = match.get('window_id')
 	# Create a second tab to detach to; capture the tab id
-	r_new = ita('tab', 'new')
+	r_new = ita('tab', 'new', '--window', window_id)
 	assert r_new.returncode == 0, f"tab new failed: {r_new.stderr}"
 	tab_id = r_new.stdout.strip().split()[-1]
 	r = ita('tab', 'detach', '-s', session, '--to', tab_id)

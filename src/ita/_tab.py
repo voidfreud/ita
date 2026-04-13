@@ -3,7 +3,7 @@
 import json
 import click
 import iterm2
-from ._core import cli, run_iterm
+from ._core import cli, run_iterm, next_free_name, _fresh_name
 from ._envelope import ItaError
 
 
@@ -14,15 +14,40 @@ def tab():
 
 
 @tab.command('new')
-@click.option('--window', 'window_id', default=None)
+@click.option('--window', 'window_id', default=None,
+	help='Window to create the tab in. REQUIRED — no focus fallback (#342).')
+@click.option('--name', 'tab_name', default=None,
+	help='Explicit title. Collision on --name is bad-args; unset → auto t1/t2/... (#342).')
 @click.option('--profile', default=None)
-def tab_new(window_id, profile):
-	"""Create new tab. Returns session ID."""
+def tab_new(window_id, tab_name, profile):
+	"""Create new tab. Returns session ID.
+
+	CONTRACT §2 "Focus-fallback is forbidden, end of (#342)" — `--window`
+	is required; there is no implicit 'current window' fallback.
+	CONTRACT §2 "Mandatory naming on creation (#342)" — when `--name` is
+	absent, the tab is titled with the lowest free `t<N>` counter."""
+	if not window_id:
+		raise ItaError("bad-args",
+			"no window specified. Use --window NAME or --window UUID-PREFIX. "
+			"Focus-fallback is forbidden (CONTRACT §2, #342).")
 	async def _run(connection):
 		app = await iterm2.async_get_app(connection)
-		window = app.get_window_by_id(window_id) if window_id else app.current_terminal_window
+		window = app.get_window_by_id(window_id)
 		if not window:
-			raise click.ClickException("No window available. Run 'ita window new' first.")
+			raise ItaError("not-found", f"Window {window_id!r} not found.")
+		# Collect existing tab titles for naming decisions. Use async_get_variable
+		# on 'title' per the resolver's fresh-read discipline.
+		existing_titles: set[str] = set()
+		for w in app.terminal_windows:
+			for t in w.tabs:
+				title = await t.async_get_variable('title') or ''
+				if title:
+					existing_titles.add(strip_or(title))
+		# §2: explicit name collision → bad-args (never silent rename).
+		if tab_name and tab_name in existing_titles:
+			raise ItaError("bad-args",
+				f"name {tab_name!r} already taken; pick another name.")
+		final_name = tab_name or next_free_name('t', existing_titles)
 		try:
 			new_tab = await window.async_create_tab(profile=profile)
 		except iterm2.CreateTabException as e:
@@ -31,27 +56,33 @@ def tab_new(window_id, profile):
 			if str(e) == 'INVALID_PROFILE_NAME':
 				raise ItaError("bad-args", f"Profile not found: {profile!r}") from e
 			raise ItaError("bad-args", f"Could not create tab: {e}") from e
+		await new_tab.async_set_title(final_name)
 		session = new_tab.current_session
 		return session.session_id
 	click.echo(run_iterm(_run))
 
 
+def strip_or(s: str) -> str:
+	"""Normalise a title to a plain str (mirrors _core.strip's NUL strip)."""
+	return (s or '').replace('\x00', '').strip()
+
+
 @tab.command('close')
 @click.argument('tab_id', required=False)
-@click.option('--current', '-c', is_flag=True, help='Close the currently active tab')
 @click.option('--allow-window-close', is_flag=True,
 	help='Permit close that would cascade-close the window (CONTRACT §10, #340).')
-def tab_close(tab_id, current, allow_window_close):
-	"""Close a tab by ID, or use --current to close the active tab."""
-	if not tab_id and not current:
-		raise click.UsageError(
-			"Specify a tab ID or use --current to close the current tab")
+def tab_close(tab_id, allow_window_close):
+	"""Close a tab by ID. `--current` was removed per CONTRACT §2 "Focus-
+	fallback is forbidden, end of (#342)"; tab_id is required."""
+	if not tab_id:
+		raise ItaError("bad-args",
+			"no tab specified. Use TAB_ID (tab_id, title, or 8+ char prefix). "
+			"Focus-fallback is forbidden (CONTRACT §2, #342).")
 	async def _run(connection):
 		app = await iterm2.async_get_app(connection)
-		t = app.get_tab_by_id(tab_id) if tab_id else (
-			app.current_terminal_window.current_tab if app.current_terminal_window else None)
+		t = app.get_tab_by_id(tab_id)
 		if not t:
-			raise click.ClickException("Tab not found")
+			raise ItaError("not-found", f"Tab {tab_id!r} not found.")
 		# CONTRACT §10 "Last-tab cascade is refused (#340)": never silently
 		# take the window down with the tab.
 		from ._cascade import tab_close_would_cascade_window
@@ -68,9 +99,10 @@ def tab_close(tab_id, current, allow_window_close):
 @click.option('-t', '--tab', 'tab_id_opt', required=True, help='Tab UUID, index, title, or 8+ char tab-id prefix.')
 def tab_activate(tab_id_opt):
 	"""Activate a tab. Resolution mirrors CONTRACT §2 session resolver:
-	exact tab_id → integer index (within the current window) → exact title
-	→ 8+ char tab_id prefix. Ambiguity is rc=6 (bad-args); nothing-found is
-	rc=2 (not-found). No fuzzy substring matching (#224)."""
+	exact tab_id → exact title → 8+ char tab_id prefix. Ambiguity is rc=6
+	(bad-args); nothing-found is rc=2 (not-found). No fuzzy substring
+	matching (#224). Integer-index resolution removed (#342: was a focus
+	fallback); use `ita tab goto <idx> --window <W>`."""
 	resolved_id = tab_id_opt
 	async def _run(connection):
 		app = await iterm2.async_get_app(connection)
@@ -79,18 +111,11 @@ def tab_activate(tab_id_opt):
 		if t:
 			await t.async_activate(order_window_front=True)
 			return
-		# 2. Integer index (within the focused terminal window). Unambiguous
-		# by construction; kept separate from the name/prefix path.
-		try:
-			idx = int(resolved_id)
-			w = app.current_terminal_window
-			if not w or not (0 <= idx < len(w.tabs)):
-				raise ItaError("not-found", f"No tab at index {idx}")
-			await w.tabs[idx].async_activate(order_window_front=True)
-			return
-		except ValueError:
-			pass
-		# 3. Exact title match (#224: previously did substring matching on
+		# CONTRACT §2 "Focus-fallback is forbidden, end of (#342)": the
+		# legacy integer-index branch resolved against
+		# `app.current_terminal_window`, a focus fallback. Removed; use
+		# `ita tab goto <idx> --window <W>` for explicit index navigation.
+		# 2. Exact title match (#224: previously did substring matching on
 		# tab_id despite the help text saying 'name'). Titles are fetched
 		# via async_get_variable; missing titles resolve to empty string.
 		import asyncio
@@ -107,7 +132,7 @@ def tab_activate(tab_id_opt):
 			raise ItaError("bad-args",
 				f"tab title {resolved_id!r} is ambiguous — matches: {ids}. "
 				f"Use the exact tab_id or an 8+ char prefix.")
-		# 4. 8+ char tab_id prefix, case-insensitive. Below the floor is
+		# 3. 8+ char tab_id prefix, case-insensitive. Below the floor is
 		# treated as not-found, matching the session resolver.
 		if len(resolved_id) >= 8:
 			needle = resolved_id.lower()
@@ -120,46 +145,62 @@ def tab_activate(tab_id_opt):
 				raise ItaError("bad-args",
 					f"tab prefix {resolved_id!r} is ambiguous — matches: {ids}.")
 		raise ItaError("not-found",
-			f"Tab {resolved_id!r} not found (tried tab_id, index, title, prefix).")
+			f"Tab {resolved_id!r} not found (tried tab_id, title, prefix).")
 	run_iterm(_run)
 
 
 @tab.command('next')
-def tab_next():
+@click.option('--window', 'window_id', required=True,
+	help='Window to cycle within. REQUIRED — no focus fallback (#342).')
+def tab_next(window_id):
+	"""Activate the tab after the current tab within --window."""
 	async def _run(connection):
 		app = await iterm2.async_get_app(connection)
-		w = app.current_terminal_window
-		if w:
-			tabs = w.tabs
-			if not w.current_tab or w.current_tab not in tabs:
-				raise click.ClickException("No current tab")
-			idx = tabs.index(w.current_tab)
-			await tabs[(idx + 1) % len(tabs)].async_activate()
+		w = app.get_window_by_id(window_id)
+		if not w:
+			raise ItaError("not-found", f"Window {window_id!r} not found.")
+		tabs = w.tabs
+		# §2 exception: the command is *about* focus within an explicitly-
+		# named window — target window is explicit, cycling is the point.
+		if not w.current_tab or w.current_tab not in tabs:
+			raise ItaError("not-found", "No current tab in window.")
+		idx = tabs.index(w.current_tab)
+		await tabs[(idx + 1) % len(tabs)].async_activate()
 	run_iterm(_run)
 
 
 @tab.command('prev')
-def tab_prev():
+@click.option('--window', 'window_id', required=True,
+	help='Window to cycle within. REQUIRED — no focus fallback (#342).')
+def tab_prev(window_id):
+	"""Activate the tab before the current tab within --window."""
 	async def _run(connection):
 		app = await iterm2.async_get_app(connection)
-		w = app.current_terminal_window
-		if w:
-			tabs = w.tabs
-			if not w.current_tab or w.current_tab not in tabs:
-				raise click.ClickException("No current tab")
-			idx = tabs.index(w.current_tab)
-			await tabs[(idx - 1) % len(tabs)].async_activate()
+		w = app.get_window_by_id(window_id)
+		if not w:
+			raise ItaError("not-found", f"Window {window_id!r} not found.")
+		tabs = w.tabs
+		# §2 exception: command is *about* focus within an explicit window.
+		if not w.current_tab or w.current_tab not in tabs:
+			raise ItaError("not-found", "No current tab in window.")
+		idx = tabs.index(w.current_tab)
+		await tabs[(idx - 1) % len(tabs)].async_activate()
 	run_iterm(_run)
 
 
 @tab.command('goto')
 @click.argument('index', type=int)
-def tab_goto(index):
+@click.option('--window', 'window_id', required=True,
+	help='Window to index into. REQUIRED — no focus fallback (#342).')
+def tab_goto(index, window_id):
+	"""Activate tab at INDEX within --window."""
 	async def _run(connection):
 		app = await iterm2.async_get_app(connection)
-		w = app.current_terminal_window
-		if not w or not (0 <= index < len(w.tabs)):
-			raise click.ClickException(f"No tab at index {index}")
+		w = app.get_window_by_id(window_id)
+		if not w:
+			raise ItaError("not-found", f"Window {window_id!r} not found.")
+		if not (0 <= index < len(w.tabs)):
+			raise ItaError("not-found", f"No tab at index {index}")
 		await w.tabs[index].async_activate()
 	run_iterm(_run)
 
@@ -184,17 +225,15 @@ def tab_list(use_json, ids_only):
 
 
 @tab.command('info')
-@click.argument('tab_id', required=False)
+@click.argument('tab_id', required=True)
 @click.option('--json', 'use_json', is_flag=True)
 def tab_info(tab_id, use_json):
+	"""TAB_ID is required — CONTRACT §2 "Focus-fallback is forbidden (#342)"."""
 	async def _run(connection):
 		app = await iterm2.async_get_app(connection)
-		if tab_id:
-			t = app.get_tab_by_id(tab_id)
-		else:
-			t = app.current_terminal_window.current_tab if app.current_terminal_window else None
+		t = app.get_tab_by_id(tab_id)
 		if not t:
-			raise click.ClickException("Tab not found")
+			raise ItaError("not-found", f"Tab {tab_id!r} not found.")
 		return {'tab_id': t.tab_id,
 				'sessions': [s.session_id for s in t.sessions],
 				'current_session': t.current_session.session_id if t.current_session else None,
@@ -211,16 +250,16 @@ def tab_info(tab_id, use_json):
 
 
 @tab.command('detach')
-@click.argument('tab_id', required=False)
+@click.argument('tab_id', required=True)
 @click.option('--to', 'index', type=int, default=None, help='Reorder to index within window')
 def tab_detach(tab_id, index):
-	"""Detach current tab into its own window, or reorder with --to."""
+	"""Detach TAB_ID into its own window, or reorder with --to. TAB_ID is
+	required — CONTRACT §2 "Focus-fallback is forbidden (#342)"."""
 	async def _run(connection):
 		app = await iterm2.async_get_app(connection)
-		t = app.get_tab_by_id(tab_id) if tab_id else (
-			app.current_terminal_window.current_tab if app.current_terminal_window else None)
+		t = app.get_tab_by_id(tab_id)
 		if not t:
-			raise click.ClickException("Tab not found")
+			raise ItaError("not-found", f"Tab {tab_id!r} not found.")
 		# #284: explicit (window, tab) destructure — matches the iTerm2 API
 		# signature `get_window_and_tab_for_session` returns (Window, Tab).
 		# `_pane.py` uses `_, tab`; we want the window here to range-check
@@ -242,16 +281,16 @@ def tab_detach(tab_id, index):
 
 
 @tab.command('move')
-@click.argument('tab_id', required=False)
+@click.argument('tab_id', required=True)
 @click.option('--to', 'index', type=int, required=True, help='Reorder to index within window')
 def tab_move(tab_id, index):
-	"""Reorder tab to position INDEX within its current window. Use 'tab detach' to move to a new window."""
+	"""Reorder TAB_ID to position INDEX within its current window. TAB_ID is
+	required — CONTRACT §2 "Focus-fallback is forbidden (#342)"."""
 	async def _run(connection):
 		app = await iterm2.async_get_app(connection)
-		t = app.get_tab_by_id(tab_id) if tab_id else (
-			app.current_terminal_window.current_tab if app.current_terminal_window else None)
+		t = app.get_tab_by_id(tab_id)
 		if not t:
-			raise click.ClickException("Tab not found")
+			raise ItaError("not-found", f"Tab {tab_id!r} not found.")
 		# #284: explicit (window, tab) destructure.
 		window, _found_tab = (
 			app.get_window_and_tab_for_session(t.current_session)
@@ -267,15 +306,15 @@ def tab_move(tab_id, index):
 
 @tab.command('profile')
 @click.argument('profile_name')
-@click.argument('tab_id', required=False)
+@click.argument('tab_id', required=True)
 def tab_profile(profile_name, tab_id):
-	"""Set profile for all panes in a tab."""
+	"""Set profile for all panes in TAB_ID. TAB_ID is required — CONTRACT §2
+	"Focus-fallback is forbidden (#342)"."""
 	async def _run(connection):
 		app = await iterm2.async_get_app(connection)
-		t = app.get_tab_by_id(tab_id) if tab_id else (
-			app.current_terminal_window.current_tab if app.current_terminal_window else None)
+		t = app.get_tab_by_id(tab_id)
 		if not t:
-			raise click.ClickException("Tab not found")
+			raise ItaError("not-found", f"Tab {tab_id!r} not found.")
 		for session in t.sessions:
 			try:
 				await session.async_set_profile(profile_name)
@@ -293,14 +332,16 @@ def tab_profile(profile_name, tab_id):
 
 @tab.command('title')
 @click.argument('title', required=False)
-def tab_title(title):
-	"""Get current tab title, or set it if TITLE provided."""
+@click.option('--tab', 'tab_id', required=True,
+	help='Tab to get/set title on. REQUIRED — no focus fallback (#342).')
+def tab_title(title, tab_id):
+	"""Get TAB's title, or set it if TITLE provided. --tab required — CONTRACT
+	§2 "Focus-fallback is forbidden (#342)"."""
 	async def _run(connection):
 		app = await iterm2.async_get_app(connection)
-		w = app.current_terminal_window
-		if not (w and w.current_tab):
-			raise click.ClickException("No active tab")
-		t = w.current_tab
+		t = app.get_tab_by_id(tab_id)
+		if not t:
+			raise ItaError("not-found", f"Tab {tab_id!r} not found.")
 		if title is None:
 			val = await t.async_get_variable('titleOverride') or await t.async_get_variable('title')
 			return val or ''
