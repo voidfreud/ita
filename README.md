@@ -10,6 +10,8 @@ Agent-first iTerm2 control for Claude Code. Built directly on the iTerm2 Python 
 
 The core innovation is `ita run "cmd"` — a single call that sends the command, waits for completion, and returns clean output. No polling, no chaining, no null bytes.
 
+**North star:** [`docs/CONTRACT.md`](docs/CONTRACT.md) is the authoritative spec — output shape, exit codes, session state machine, protection/lock invariants. Every PR amends it.
+
 ## Requirements
 
 - macOS with iTerm2 3.6+
