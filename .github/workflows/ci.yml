@@ -1,0 +1,106 @@
+name: CI (fast lane)
+
+# Phase 5a fast-lane CI for ita.
+# Scope: lint, collect-only smoke, and the fast-lane pytest slice.
+# Out of scope: integration (real iTerm2), stress, perf, fault_injection — those get their own workflows.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ci-fast-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    name: lint (ruff)
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+          cache-dependency-glob: |
+            pyproject.toml
+            uv.lock
+
+      - name: Sync dev deps
+        run: uv sync --extra dev
+
+      - name: ruff check
+        run: uv run --extra dev ruff check .
+
+  collect-only:
+    name: pytest --collect-only (import smoke)
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+          cache-dependency-glob: |
+            pyproject.toml
+            uv.lock
+
+      - name: Sync dev deps
+        run: uv sync --extra dev
+
+      - name: Collect-only smoke (no import errors)
+        run: uv run --extra dev pytest --collect-only -q
+
+      - name: Sanity floor — >=500 collected items
+        # Guards against a silently-deleted suite. Baseline as of Phase 5a is ~822 items
+        # (557 pass + 14 fail + 195 skip + 56 xfailed). 500 is a conservative floor.
+        run: |
+          count=$(uv run --extra dev pytest --collect-only -q 2>/dev/null | tail -1 | grep -oE '[0-9]+' | head -1)
+          echo "Collected: $count"
+          if [ -z "$count" ] || [ "$count" -lt 500 ]; then
+            echo "::error::Collected test count ($count) below sanity floor (500). Something is wrong."
+            exit 1
+          fi
+
+  test-fast-lane:
+    name: pytest (fast lane)
+    runs-on: macos-latest
+    needs: [collect-only]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+          cache-dependency-glob: |
+            pyproject.toml
+            uv.lock
+
+      - name: Sync dev deps
+        run: uv sync --extra dev
+
+      - name: Run fast-lane pytest
+        shell: bash
+        run: |
+          set -o pipefail
+          uv run --extra dev pytest \
+            -m "not integration and not stress and not perf and not fault_injection" \
+            --timeout=30 \
+            -ra \
+            --tb=short \
+            | tee pytest-fast-lane.log
+
+      - name: Upload pytest log on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pytest-fast-lane-log
+          path: pytest-fast-lane.log
+          if-no-files-found: ignore
+          retention-days: 14
