@@ -208,9 +208,12 @@ def _reject_combo(session_id, where, all_flag):
 @click.option('--dry-run', is_flag=True, help='Print what would be closed without doing it')
 @click.option('--json', 'use_json', is_flag=True,
 			  help='Emit CONTRACT §4 envelope on stdout (single-session path only).')
+@click.option('--allow-window-close', is_flag=True,
+			  help='Permit closes that would cascade-close a window (CONTRACT §10, #340).')
 @_force_options
 @ita_command(op='close')
 def close(session_id, filter_expr, all_flag, quiet, dry_run, use_json,
+		  allow_window_close,
 		  force_protected, force_lock, force):
 	"""Close a session (or many via --where / --all).
 
@@ -228,6 +231,15 @@ def close(session_id, filter_expr, all_flag, quiet, dry_run, use_json,
 			nonlocal closed_id
 			session = await resolve_session(connection, session_id)
 			check_protected(session.session_id, force_protected=fp)
+			# CONTRACT §10 "Destructive blast radius — tab-by-tab default
+			# (#340)": refuse a close that would cascade-close the window
+			# unless --allow-window-close was passed.
+			from ._cascade import session_close_would_cascade_window
+			if not allow_window_close and session_close_would_cascade_window(session):
+				raise ItaError("bad-args",
+					f"Closing session {session.session_id[:8]}… would also close its "
+					f"tab and window (last session in last tab). Pass "
+					f"--allow-window-close to proceed (CONTRACT §10, #340).")
 			closed_id = session.session_id
 			if not dry_run:
 				with session_writelock(session.session_id, force_lock=fl):
