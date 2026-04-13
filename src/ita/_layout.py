@@ -4,7 +4,7 @@ import asyncio
 import json
 import click
 import iterm2
-from ._core import cli, run_iterm, confirm_or_skip, next_free_name
+from ._core import cli, run_iterm, confirm_or_skip, next_free_name, capture_focus, restore_focus
 from ._envelope import ItaError
 
 
@@ -20,13 +20,16 @@ def window():
 @click.option('--name', 'window_name', default=None,
 	help='Explicit title. Collision on --name is bad-args; unset → auto w1/w2/... (#342).')
 @click.option('--profile', default=None)
-def window_new(window_name, profile):
+@click.option('--background', is_flag=True,
+	help='Create without shifting focus; restore previously-focused target after creation (#346).')
+def window_new(window_name, profile, background):
 	"""Create new window. Returns window ID.
 
 	CONTRACT §2 "Mandatory naming on creation (#342)" — when `--name` is
 	absent, the window is titled with the lowest free `w<N>` counter."""
 	async def _run(connection):
 		app = await iterm2.async_get_app(connection)
+		captured = await capture_focus(app) if background else None
 		# Parallel title fetch (#301) — replaces serial loop.
 		wins = list(app.terminal_windows)
 		titles = await asyncio.gather(
@@ -46,6 +49,8 @@ def window_new(window_name, profile):
 				raise ItaError("bad-args", f"Profile not found: {profile!r}") from e
 			raise
 		await w.async_set_title(final_name)
+		if captured is not None:
+			await restore_focus(app, captured)
 		return w.window_id
 	click.echo(run_iterm(_run))
 
