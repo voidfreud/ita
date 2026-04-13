@@ -4,7 +4,10 @@ import shutil
 import time
 import pytest
 
-from helpers import ita, ita_ok, _extract_sid, TEST_SESSION_PREFIX
+from helpers import (
+	ita, ita_ok, _extract_sid, TEST_SESSION_PREFIX,
+	_all_window_ids, _close_window,
+)
 
 
 @pytest.fixture
@@ -13,12 +16,19 @@ def session_factory(request):
 
 	Each call to create() registers teardown for all sessions it created.
 	Safe to call multiple times within one test (e.g. create(2) then create(1)).
+
+	#348: also tracks any windows opened by `ita new` and closes them in
+	teardown (otherwise iTerm2 leaves an orphan default-shell window
+	behind once our session is closed).
 	"""
 	all_sids: list[str] = []
+	all_new_windows: set[str] = set()
 
 	def _teardown():
 		for sid in all_sids:
 			ita('close', '-s', sid, timeout=10)
+		for wid in all_new_windows:
+			_close_window(wid)
 
 	request.addfinalizer(_teardown)
 
@@ -27,6 +37,8 @@ def session_factory(request):
 		# TESTING.md §4.1 L2: register each successful sid into all_sids
 		# IMMEDIATELY (not after the batch). If create() raises mid-batch,
 		# the addfinalizer still cleans up everything we managed to spin up.
+		# #348: also snapshot windows so we can clean any new ones.
+		windows_before = _all_window_ids()
 
 		def _spin(i: int) -> str:
 			name = f"{safe_base}-{i}"
@@ -38,13 +50,13 @@ def session_factory(request):
 			return sid
 
 		with concurrent.futures.ThreadPoolExecutor(max_workers=max(1, n)) as pool:
-			# Use as_completed instead of map so partial successes are kept
-			# even when one of the futures raises.
 			futures = [pool.submit(_spin, i) for i in range(n)]
 			sids: list[str] = []
 			for f in concurrent.futures.as_completed(futures):
 				sids.append(f.result())  # may raise; partials already in all_sids
 
+		# Capture any window that didn't exist before this batch.
+		all_new_windows.update(_all_window_ids() - windows_before)
 		return sids
 
 	return create

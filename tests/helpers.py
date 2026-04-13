@@ -72,3 +72,60 @@ def _close_test_sessions(sids: list[str]) -> None:
 	"""Close all given session IDs, ignoring errors."""
 	for sid in sids:
 		ita('close', '-s', sid, timeout=10)
+
+
+# ── Window-leak helpers (#348) ─────────────────────────────────────────────
+# iTerm2 spawns a default `-zsh` shell when an otherwise-empty window loses
+# its session — so closing a test SESSION leaves an orphan WINDOW behind
+# unless the test also closes the window. These helpers let fixtures track
+# windows they create AND let the safety-net sweep detect orphans.
+
+def _all_window_ids() -> set[str]:
+	"""Snapshot of all current iTerm2 window IDs."""
+	r = ita('window', 'list', '--json', timeout=10)
+	if r.returncode != 0:
+		return set()
+	try:
+		windows = json.loads(r.stdout)
+	except (json.JSONDecodeError, ValueError):
+		return set()
+	return {w['window_id'] for w in windows}
+
+
+def _close_window(wid: str) -> None:
+	"""Best-effort close of a window. Requires --allow-window-close
+	(CONTRACT §10). Errors swallowed — used in cleanup paths."""
+	ita('window', 'close', wid, '--allow-window-close', '-y', timeout=10)
+
+
+def _orphan_default_windows() -> list[str]:
+	"""Window IDs that look like test orphans: single tab, single session,
+	session name starts with 'Default' (iTerm2's default-shell name when it
+	respawns into an emptied window). Heuristic — narrow on purpose."""
+	r = ita('overview', '--json', timeout=10)
+	if r.returncode != 0:
+		return []
+	try:
+		data = json.loads(r.stdout)
+	except (json.JSONDecodeError, ValueError):
+		return []
+	orphans = []
+	for w in data.get('windows', []):
+		tabs = w.get('tabs', [])
+		if len(tabs) != 1:
+			continue
+		sessions = tabs[0].get('sessions', [])
+		if len(sessions) != 1:
+			continue
+		name = sessions[0].get('session_name', '')
+		if name.startswith('Default'):
+			orphans.append(w['window_id'])
+	return orphans
+
+
+def _close_orphan_default_windows() -> int:
+	"""Close every window matching the orphan heuristic. Returns count closed."""
+	wids = _orphan_default_windows()
+	for wid in wids:
+		_close_window(wid)
+	return len(wids)
