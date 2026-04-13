@@ -139,4 +139,7 @@ def test_unlock_quiet_suppresses_output(session):
 	ita_ok('lock', '-s', session)
 	r = ita('unlock', '-y', '-q', '-s', session)
 	assert r.returncode == 0
+	# CONTRACT §3: --quiet silences success-path stderr ("Unlocked: …").
+	# Both streams must be empty on the happy path.
 	assert r.stdout.strip() == ''
+	assert r.stderr.strip() == '', f"--quiet leaked to stderr: {r.stderr!r}"
