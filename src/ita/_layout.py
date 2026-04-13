@@ -4,6 +4,7 @@ import json
 import click
 import iterm2
 from ._core import cli, run_iterm, confirm_or_skip
+from ._envelope import ItaError
 
 
 # ── Windows ────────────────────────────────────────────────────────────────
@@ -35,11 +36,22 @@ def window_new(profile):
 @click.option('--dry-run', is_flag=True, help='Print what would be closed (#143).')
 @click.option('--confirm', is_flag=True, help='Require confirmation (#143).')
 @click.option('-y', '--yes', is_flag=True, help='Skip confirmation prompt (#143).')
-def window_close(window_id, force, quiet, dry_run, confirm, yes):
-	"""Close a window. WINDOW_ID is required unless --force is passed."""
+@click.option('--allow-window-close', is_flag=True,
+	help='Required to actually close a window (CONTRACT §10, #340).')
+def window_close(window_id, force, quiet, dry_run, confirm, yes, allow_window_close):
+	"""Close a window. WINDOW_ID is required unless --force is passed.
+
+	Per CONTRACT §10 (#340), closing a window is destructive enough that it
+	requires an explicit opt-in: pass --allow-window-close or the command
+	errors with rc=6 (bad-args). Dry-run is exempt (it closes nothing)."""
 	if not window_id and not force:
 		raise click.UsageError(
 			"WINDOW_ID required (or pass --force to close the current window)")
+	if not allow_window_close and not dry_run:
+		raise ItaError("bad-args",
+			"`ita window close` requires --allow-window-close "
+			"(CONTRACT §10, #340). Closing a window can take down the "
+			"Claude Code session driving ita; explicit opt-in required.")
 	target = window_id or 'current window'
 	msg = f"close window {target}"
 	if dry_run:
