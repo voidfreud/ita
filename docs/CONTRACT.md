@@ -371,7 +371,7 @@ Iterated by `tests/test_contracts.py` over every command in `ita commands --json
 1. **Never lie to the caller.** No command reports success when its effect didn't happen. No envelope has `ok=true` with `error != null`.
 2. **No stdout pollution, no silent corruption of input.** Stdout obeys §3 in every mode (no ANSI in non-TTY, no NUL, no traceback). Commands that transmit caller-supplied text (`inject`, `send`) are UTF-8 end-to-end: every valid Unicode codepoint — including astral-plane chars above U+FFFF — survives verbatim. Un-encodable input (lone surrogates) fails loudly with `bad-args` (rc=6) rather than being silently mangled or replaced (#229).
 3. **Exit code matches envelope.** `ok=true ⇔ rc=0`. `ok=false ⇔ rc ∈ §6 \ {0}`. Identical across plain and JSON modes.
-4. **Protection and lock are never bypassed silently.** Every mutator is gated. Bulk paths enumerated and tested.
+4. **Protection, lock, and path-trust are never bypassed silently.** Every mutator is gated. Bulk paths enumerated and tested. Commands that read caller-supplied filesystem paths (`run --stdin`) validate that the path resolves (realpath, symlinks chased) under the caller's CWD; escape attempts via absolute path, `..`, or symlinks fail with `bad-args` (rc=6). Explicit opt-out flags (`--stdin-allow-outside-cwd`) are agent-side and never interactive (§1, §12). #325.
 5. **Identity is explicit.** No command succeeds against an implicitly-resolved target. Ambiguous prefix = rc=6.
 6. **Readiness is honoured.** Create-then-return commands don't return before the session is `ready` (or the caller passed `--no-wait`).
 
@@ -424,6 +424,7 @@ PRs that add any of the following will be closed with a pointer here:
 | #289, #297, #299, #304 | §2 |
 | #290 | §6 |
 | #229 | §14 |
+| #325 | §14 |
 | #292 | §14 |
 | #296 | §3, §11 |
 | #316, #318, #322 | §3, §4 |
