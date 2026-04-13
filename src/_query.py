@@ -77,8 +77,10 @@ def wait(pattern, fixed_string, timeout, use_json, session_id):
 			{'matched': found, 'line': matched_line, 'elapsed_ms': elapsed_ms},
 			ensure_ascii=False,
 		))
-	elif not found and pattern:
-		raise click.ClickException(f"Timeout: pattern {pattern!r} not found within {timeout}s")
+	elif not found:
+		# #231: text mode timeout must be distinguishable from a match (rc != 0).
+		click.echo("timeout", err=True)
+		raise SystemExit(1)
 
 
 @cli.command()

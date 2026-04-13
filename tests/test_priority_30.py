@@ -95,7 +95,6 @@ def test_trust_05_broadcast_on_missing_session():
 
 
 @pytest.mark.contract
-@pytest.mark.known_broken  # #247
 def test_trust_06_on_prompt_timeout_missing_session():
 	"""
 	(a) Never-lie: on prompt --timeout on missing session must fail, not hang or no-op.
@@ -459,7 +458,6 @@ def test_trust_27_run_json_exit_124_on_timeout(session):
 
 
 @pytest.mark.contract
-@pytest.mark.known_broken  # #247
 def test_trust_28_on_prompt_timeout_exits_nonzero(session):
 	"""
 	(a) Timeout-explicit: on prompt --timeout that expires must exit non-zero.
