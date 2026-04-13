@@ -6,6 +6,7 @@ import re
 import click
 import iterm2
 from ._core import cli, run_iterm, resolve_session, strip, PROMPT_CHARS, last_non_empty_index
+from ._envelope import ItaError
 
 
 @cli.group()
@@ -88,16 +89,17 @@ def on_prompt(timeout, session_id, use_json):
 		else:
 			click.echo(result)
 	else:
-		# #247: silent timeout fixed — emit structured message to stderr, rc != 0.
+		# #247: silent timeout → structured §4/§6 error, rc=4 (CONTRACT §14.1).
+		# For --json callers also emit a parseable hint on stderr so agents see
+		# elapsed_ms before Click renders the ItaError. The ItaError itself
+		# drives the exit code and the stderr `Error:` line in plain mode.
 		if use_json:
 			click.echo(
 				json.dumps({'matched': False, 'reason': 'timeout', 'elapsed_ms': elapsed_ms},
 				ensure_ascii=False),
 				err=True,
 			)
-		else:
-			click.echo(f"timeout: no prompt appeared within {timeout}s", err=True)
-		raise SystemExit(1)
+		raise ItaError('timeout', f"no prompt appeared within {timeout}s")
 
 
 _UUID_RE = re.compile(r'[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}')
