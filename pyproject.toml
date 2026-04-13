@@ -20,6 +20,7 @@ dev = [
 	"pytest-benchmark",
 	"jsonschema",
 	"ruff",
+	"mutmut",
 ]
 
 [tool.pytest.ini_options]
@@ -39,4 +40,9 @@ markers = [
 	"state: idempotency and persistence across invocations",
 	"known_broken: documents an unfixed bug; expected to fail",
 	"xfail_flaky: racy/async — filed as a bug; do not fix in test",
+	"fault_injection: in-process fault scenarios; no live iTerm2 required",
 ]
+
+[tool.mutmut]
+paths_to_mutate = "src/"
+runner = "uv run pytest -m 'not integration and not stress and not perf and not fault_injection' -x --timeout=30"

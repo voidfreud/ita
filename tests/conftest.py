@@ -6,7 +6,7 @@ import pytest
 
 # Import fixtures from sub-package so pytest collects them.
 # hypothesis_profiles are registered at import time inside fixtures.environment.
-from fixtures import session_factory, broadcast_domain, protected_session, clean_iterm  # noqa: F401
+from fixtures import session_factory, broadcast_domain, protected_session, clean_iterm, shell  # noqa: F401
 
 ITA = Path(__file__).parent.parent / 'src' / 'ita.py'
 
@@ -135,6 +135,7 @@ def pytest_configure(config):
 	config.addinivalue_line('markers', 'property: hypothesis property-based tests')
 	config.addinivalue_line('markers', 'adversarial: concurrent / race-condition tests')
 	config.addinivalue_line('markers', 'perf: latency benchmark tests')
+	config.addinivalue_line('markers', 'shell_matrix: cross-shell compatibility tests (bash/zsh/fish)')
 	config.addinivalue_line('markers', 'xfail_flaky: async race — filed as bug, not fixed here')
 
 

@@ -133,6 +133,18 @@ Wiring is deferred to a follow-up PR; the contract is fixed now so tests can be 
 
 Coverage report (`pytest --cov=src --cov-report=xml`) is attached as a CI artifact.
 
+### 7.2 Flake cadence
+
+Run `python scripts/flake_check.py` **quarterly** (or after any test-stability incident).
+The script re-runs every test tagged `xfail_flaky` 20 times and buckets results:
+
+- **True race** (0 % < pass rate < 100 %) — keep the marker, open or update a tracking issue.
+- **Stable xfail** (0 % pass) — the test never passes; remove it or replace with a `known_broken` stub.
+- **False flake** (100 % pass) — the flakiness is gone; remove the `xfail_flaky` marker.
+
+Each tagged test must be triaged at least once per quarter.
+A CI job (`flaky-staleness` in `.github/workflows/ci.yml`) fails if any `xfail_flaky` test hasn't been touched in the last 6 months, enforcing the cadence automatically.
+
 ### 7.1 Budget table (perf lane)
 
 Budgets are enforced in `tests/test_perf.py`. A violation causes `rc != 0` in the `perf` lane.
@@ -346,6 +358,22 @@ Legend per class cell: `✓` covered with real assertions, `s` smoke-only (rc=0)
 | Command    | json | Happy | Edge | Error | Adv | State | Contract | Prop | Regr | Stress | Perf |
 |------------|------|-------|------|-------|-----|-------|----------|------|------|--------|------|
 | `overview` | Y    | ✓     | ✓    |       |     |       | ✓        |      |      |        |      |
+
+---
+
+## 8.1 Mutation testing
+
+**What it is.** Mutation testing automatically injects small code faults (e.g. flipping `>` to `>=`, deleting a `return`) and re-runs the suite. A mutant that survives — i.e. no test turns red — signals a test gap: the code changed but no assertion noticed.
+
+**How to interpret results.** Survived mutants are weak-test signals, not bugs. Prioritise fixing tests around logic that is security- or correctness-critical; surviving mutants in logging or display code are low priority.
+
+**Tooling.** `mutmut` is wired as an optional CI lane (`.github/workflows/ci.yml` job `mutation`). It targets `src/` and runs the fast suite (excludes `integration`, `stress`, `perf`, `fault_injection`). The cache is uploaded as a CI artifact so diffs can be compared between runs.
+
+**Trigger.** `workflow_dispatch` only — run manually via GitHub Actions UI. Do not run on every push; a full mutation pass takes tens of minutes to hours depending on codebase size.
+
+**Cadence.** Quarterly one-shot, or before a significant refactor. Review survived mutants, add targeted assertions, rerun to confirm kill rate improves.
+
+**Local run (optional).** `uv run mutmut run --simple-output` then `uv run mutmut results`. Expect a long wait.
 
 ---
 
