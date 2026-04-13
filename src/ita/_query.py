@@ -7,6 +7,7 @@ import subprocess
 import click
 import iterm2
 from ._core import cli, run_iterm, resolve_session, strip, last_non_empty_index, _is_prompt_line
+from ._envelope import ItaError
 
 
 @cli.command()
@@ -77,10 +78,19 @@ def wait(pattern, fixed_string, timeout, use_json, session_id):
 			{'matched': found, 'line': matched_line, 'elapsed_ms': elapsed_ms},
 			ensure_ascii=False,
 		))
+		if not found:
+			# #231: --json mode must still exit rc=4 on timeout per CONTRACT §6
+			# (mode-independent exit codes). Envelope already emitted above.
+			raise SystemExit(4)
 	elif not found:
-		# #231: text mode timeout must be distinguishable from a match (rc != 0).
-		click.echo("timeout", err=True)
-		raise SystemExit(1)
+		# #231: plain-mode timeout — rc=4 per CONTRACT §6, clear stderr message.
+		# Matches --json-mode rc so callers can't confuse timeout with match.
+		raise ItaError("timeout", f"timeout after {timeout}s")
+	else:
+		# #231: plain-mode match confirmation on stderr so callers without
+		# --json can see what matched. Stdout stays empty (preserves piping UX).
+		if matched_line:
+			click.echo(f"matched: {matched_line}", err=True)
 
 
 @cli.command()
