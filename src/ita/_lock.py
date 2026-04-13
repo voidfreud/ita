@@ -117,14 +117,32 @@ def acquire_writelock(session_id: str) -> bool:
 
 
 def release_writelock(session_id: str) -> None:
-	"""Release iff held by this process (matched by cookie). No-op otherwise, so safe in finally."""
-	data = _load_writelocks()
-	entry = data.get(session_id)
-	if entry:
+	"""Release iff held by this process (matched by cookie). No-op otherwise, so safe in finally.
+
+	Read-modify-write of WRITELOCK_FILE happens under fcntl.LOCK_EX so two
+	threads/processes releasing different sessions don't overwrite each
+	other's pop (which would leave residue in _held_cookies and ghost
+	entries on disk). Same locking discipline as acquire_writelock."""
+	with _held_cookies_lock:
+		our_cookie = _held_cookies.get(session_id)
+	if our_cookie is None:
+		return  # we never held it
+	with open(WRITELOCK_FILE, 'a+') as f:
+		fcntl.flock(f, fcntl.LOCK_EX)
+		f.seek(0)
+		raw = f.read()
+		try:
+			data = json.loads(raw) if raw.strip() else {}
+		except json.JSONDecodeError:
+			data = {}
+		entry = data.get(session_id)
+		if entry is None:
+			# Disk entry already gone (raced with another release/acquire).
+			# Still clear our in-memory cookie so we don't leak it.
+			with _held_cookies_lock:
+				_held_cookies.pop(session_id, None)
+			return
 		stored_cookie = entry.get('cookie')
-		with _held_cookies_lock:
-			our_cookie = _held_cookies.get(session_id)
-		# New-format: must match cookie. Old-format (no cookie): fall back to pid.
 		if stored_cookie is not None:
 			if stored_cookie != our_cookie:
 				return
@@ -133,7 +151,11 @@ def release_writelock(session_id: str) -> None:
 		data.pop(session_id, None)
 		with _held_cookies_lock:
 			_held_cookies.pop(session_id, None)
-		_save_writelocks(data)
+		# Atomic in-place rewrite (still under flock)
+		f.seek(0)
+		f.truncate()
+		if data:
+			f.write(json.dumps(data, indent=2) + '\n')
 
 
 def check_writelock(session_id: str, force_lock: bool = False) -> None:
