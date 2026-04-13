@@ -58,7 +58,6 @@ def on_output(pattern, timeout, session_id, use_json):
 @click.option('--json', 'use_json', is_flag=True, help='Emit {"line": ...} instead of plain text.')
 def on_prompt(timeout, session_id, use_json):
 	"""Block until next shell prompt appears."""
-	import time as _time
 	async def _run(connection):
 		t0 = asyncio.get_running_loop().time()
 		session = await resolve_session(connection, session_id)

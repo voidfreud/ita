@@ -10,7 +10,7 @@ from pathlib import Path
 
 import pytest
 
-from conftest import ITA, TEST_SESSION_PREFIX
+from conftest import ITA
 from tests.test_contracts import COMMANDS
 
 # ---------------------------------------------------------------------------

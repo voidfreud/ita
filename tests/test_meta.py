@@ -142,7 +142,7 @@ class TestDoctor:
 		"""Happy: every output line starts with ✓ or ✗."""
 		r = ita('doctor')
 		assert r.returncode == 0
-		lines = [l for l in r.stdout.strip().splitlines() if l.strip()]
+		lines = [ln for ln in r.stdout.strip().splitlines() if ln.strip()]
 		assert lines, "No output lines"
 		for line in lines:
 			assert line.startswith('✓') or line.startswith('✗'), \
@@ -153,7 +153,7 @@ class TestDoctor:
 		"""Edge: since tests only run when iTerm2 is up, reachable check must be ✓."""
 		r = ita('doctor')
 		assert r.returncode == 0
-		passing = [l for l in r.stdout.splitlines() if 'iTerm2 reachable' in l]
+		passing = [ln for ln in r.stdout.splitlines() if 'iTerm2 reachable' in ln]
 		assert passing, "iTerm2 reachable check not in output"
 		assert passing[0].startswith('✓'), \
 			f"Expected ✓ for 'iTerm2 reachable', got: {passing[0]!r}"

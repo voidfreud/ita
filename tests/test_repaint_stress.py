@@ -11,7 +11,7 @@ from pathlib import Path
 import pytest
 
 sys.path.insert(0, str(Path(__file__).parent))
-from conftest import ita, ita_ok
+from conftest import ita
 
 pytestmark = [pytest.mark.stress, pytest.mark.integration]
 
@@ -32,7 +32,7 @@ def test_run_carriage_return_repaint(session):
 	r = ita('run', cmd, '-s', session, timeout=30)
 	assert r.returncode == 0, f"run failed: {r.stderr}"
 	assert 'DONE' in r.stdout, f"DONE sentinel missing from stdout:\n{r.stdout!r}"
-	lines = [l for l in r.stdout.splitlines() if '\r' in l and 'Progress' in l]
+	lines = [ln for ln in r.stdout.splitlines() if '\r' in ln and 'Progress' in ln]
 	assert not lines, f"Partial \\r lines leaked into output: {lines}"
 
 
@@ -64,7 +64,7 @@ def test_run_large_output_5000_lines(session):
 	Probes: run output-scoping fragility — buffer or scroll-back limits."""
 	r = ita('run', 'seq 1 5000', '-n', '5000', '-s', session, timeout=60)
 	assert r.returncode == 0, f"run failed: {r.stderr}"
-	lines = [l for l in r.stdout.splitlines() if l.strip().isdigit()]
+	lines = [ln for ln in r.stdout.splitlines() if ln.strip().isdigit()]
 	assert len(lines) == 5000, f"Expected 5000 numeric lines, got {len(lines)}"
 	assert '5000' in r.stdout, "Last line (5000) missing — truncation detected"
 

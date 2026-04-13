@@ -15,8 +15,6 @@ Distribution:
   2× readiness
 """
 import json
-import os
-import re
 import subprocess
 import sys
 import time
@@ -25,7 +23,7 @@ from pathlib import Path
 import pytest
 
 sys.path.insert(0, str(Path(__file__).parent))
-from conftest import ita, ita_ok, _extract_sid
+from conftest import ita, _extract_sid
 
 pytestmark = [pytest.mark.contract, pytest.mark.integration]
 
@@ -200,7 +198,6 @@ def test_trust_13_corrupt_broadcast_state_read():
 	(b) Issue #292: corrupt state stub triggers unhandled exception.
 	(c) 'Traceback' absent; rc may be non-zero but no raw exception.
 	"""
-	import tempfile
 	state_path = Path.home() / '.ita' / 'broadcast_state.json'
 	backup = None
 	try:
@@ -467,7 +464,7 @@ def test_trust_28_on_prompt_timeout_exits_nonzero(session):
 	# Use a very short timeout and don't trigger a prompt.
 	r = ita('on', 'prompt', '-s', session, '--timeout', '1', timeout=5)
 	assert r.returncode != 0, (
-		f"on prompt --timeout exited 0 without a matching event (expected non-zero) (#247)"
+		"on prompt --timeout exited 0 without a matching event (expected non-zero) (#247)"
 	)
 
 

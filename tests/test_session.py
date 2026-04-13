@@ -68,7 +68,7 @@ def test_capture_lines_cap(session):
 	time.sleep(1)
 	r = ita('capture', '-n', '5', '-s', session)
 	assert r.returncode == 0
-	lines = [l for l in r.stdout.splitlines() if l.strip()]
+	lines = [ln for ln in r.stdout.splitlines() if ln.strip()]
 	assert len(lines) <= 5
 
 

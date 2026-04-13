@@ -34,7 +34,7 @@ def test_watch_json_stream_emits_valid_json(session):
 		pytest.xfail("watch timed out")
 	assert r.returncode == 0
 	# Every output line should be a JSON object
-	lines = [l for l in r.stdout.splitlines() if l.strip()]
+	lines = [ln for ln in r.stdout.splitlines() if ln.strip()]
 	assert len(lines) > 0, "Expected at least one JSON frame"
 	for line in lines:
 		obj = json.loads(line)
@@ -60,7 +60,7 @@ def test_watch_json_stream_schema(session):
 	except subprocess.TimeoutExpired:
 		pytest.xfail("watch timed out")
 	assert r.returncode == 0
-	lines = [l for l in r.stdout.splitlines() if l.strip()]
+	lines = [ln for ln in r.stdout.splitlines() if ln.strip()]
 	assert lines, "No JSON frames emitted"
 	for line in lines:
 		obj = json.loads(line)
@@ -85,7 +85,7 @@ def test_watch_json_alias(session):
 	except subprocess.TimeoutExpired:
 		pytest.xfail("watch timed out")
 	assert r.returncode == 0
-	lines = [l for l in r.stdout.splitlines() if l.strip()]
+	lines = [ln for ln in r.stdout.splitlines() if ln.strip()]
 	for line in lines:
 		json.loads(line)  # must not raise
 

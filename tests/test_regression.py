@@ -17,7 +17,7 @@ def test_r23_run_lines_cap(session):
 	"""#23: run -n N should return at most N lines (after trimming blanks)."""
 	r = ita('run', 'seq 1 100', '-n', '10', '-s', session)
 	assert r.returncode == 0
-	lines = [l for l in r.stdout.splitlines() if l.strip()]
+	lines = [ln for ln in r.stdout.splitlines() if ln.strip()]
 	assert len(lines) <= 10, f"#23: got {len(lines)} lines, expected ≤10"
 	assert '100' in r.stdout  # last line of seq 1 100
 

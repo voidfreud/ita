@@ -180,7 +180,7 @@ def test_issue_248_run_n_warning_on_stderr(session):
 	cmd = 'printf "line1\\nline2\\nline3\\n"'
 	r = ita('run', '-s', session, '-n', str(n), cmd, timeout=15)
 	assert r.returncode == 0, f"run -n failed: {r.stderr}"
-	stdout_lines = [l for l in r.stdout.splitlines() if l]
+	stdout_lines = [ln for ln in r.stdout.splitlines() if ln]
 	assert len(stdout_lines) == n, (
 		f"#248: expected {n} stdout lines, got {len(stdout_lines)}; "
 		f"warning may be in stdout\nstdout: {r.stdout!r}\nstderr: {r.stderr!r}"
@@ -252,8 +252,8 @@ def test_issue_249_broadcast_on_verifies_persistence(session):
 		assert r_list.returncode == 0, f"broadcast list failed: {r_list.stderr}"
 		domains = json.loads(r_list.stdout)
 		assert len(domains) > 0, (
-			f"#249: broadcast on exited 0 but no domains are registered; "
-			f"would have been silent failure before fix"
+			"#249: broadcast on exited 0 but no domains are registered; "
+			"would have been silent failure before fix"
 		)
 	finally:
 		ita('broadcast', 'off', '-y')

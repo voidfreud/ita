@@ -11,7 +11,7 @@ import sys
 import asyncio
 from pathlib import Path
 from datetime import datetime, timezone, timedelta
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 sys.path.insert(0, str(Path(__file__).parent.parent / 'src'))
@@ -21,7 +21,6 @@ from _core import (
 	acquire_writelock,
 	release_writelock,
 	_load_writelocks,
-	_save_writelocks,
 	_pid_alive,
 	WRITELOCK_FILE,
 )

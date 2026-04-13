@@ -49,7 +49,7 @@ def test_run_lines_cap(settled_session):
 	"""Last N lines of seq 1 100 with -n 10 should include line 100."""
 	r = ita('run', 'seq 1 100', '-n', '10', '-s', settled_session)
 	assert r.returncode == 0
-	lines = [l for l in r.stdout.splitlines() if l.strip()]
+	lines = [ln for ln in r.stdout.splitlines() if ln.strip()]
 	assert len(lines) <= 10
 	assert '100' in r.stdout  # seq 1 100 ends with 100
 

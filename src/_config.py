@@ -94,11 +94,13 @@ def var_set(name, value, scope, session_id, quiet, dry_run, confirm, yes, use_js
 			await app.async_set_variable(name, value)
 		elif scope == 'window':
 			w = app.current_terminal_window
-			if w: await w.async_set_variable(name, value)
+			if w:
+				await w.async_set_variable(name, value)
 		elif scope == 'tab':
 			w = app.current_terminal_window
 			t = w.current_tab if w else None
-			if t: await t.async_set_variable(name, value)
+			if t:
+				await t.async_set_variable(name, value)
 		else:
 			session = await resolve_session(connection, session_id)
 			await session.async_set_variable(name, value)

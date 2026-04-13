@@ -13,7 +13,7 @@ from pathlib import Path
 import pytest
 
 sys.path.insert(0, str(Path(__file__).parent))
-from conftest import ita, ita_ok, _extract_sid, _all_session_ids
+from conftest import ita, _all_session_ids
 
 ITA = Path(__file__).parent.parent / 'src' / 'ita.py'
 

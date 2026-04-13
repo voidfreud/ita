@@ -8,7 +8,6 @@ Notes:
 - p99 over 20 samples is effectively the max; acceptable for a gate.
   See docs/TESTING.md §7 Budget table for the spec.
 """
-import json
 import subprocess
 import sys
 from pathlib import Path

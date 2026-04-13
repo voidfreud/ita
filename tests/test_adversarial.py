@@ -454,7 +454,7 @@ def test_capture_n_limits_lines(session):
 	ita('run', 'seq 1 100', '-s', session, timeout=15)
 	r = ita('capture', '-n', '5', '-s', session)
 	assert r.returncode == 0, f"capture -n 5 failed: {r.stderr}"
-	lines = [l for l in r.stdout.splitlines() if l.strip()]
+	lines = [ln for ln in r.stdout.splitlines() if ln.strip()]
 	assert len(lines) <= 5, f"capture -n 5 returned {len(lines)} lines"
 
 

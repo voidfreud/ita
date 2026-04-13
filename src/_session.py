@@ -6,7 +6,7 @@ import click
 import iterm2
 from _core import (cli, run_iterm, resolve_session, strip, read_session_lines,
 	check_protected, _all_sessions, parse_filter, match_filter,
-	session_writelock, confirm_or_skip, _SENTINEL_RE)
+	session_writelock, _SENTINEL_RE)
 
 
 async def _fresh_name(session) -> str:
@@ -502,7 +502,7 @@ def capture(file, lines, scrollback, session_id):
 	async def _run(connection):
 		session = await resolve_session(connection, session_id)
 		result = await read_session_lines(session, include_scrollback=scrollback)
-		result = [l for l in result if not _SENTINEL_RE.match(l)]
+		result = [ln for ln in result if not _SENTINEL_RE.match(ln)]
 		return result
 
 	result = run_iterm(_run)

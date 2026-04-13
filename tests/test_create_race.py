@@ -3,7 +3,6 @@ created-≠-ready (#250, #268), double-close, leaked windows, and overview
 stability under concurrent creation.
 """
 import json
-import subprocess
 import sys
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -12,7 +11,7 @@ from pathlib import Path
 import pytest
 
 sys.path.insert(0, str(Path(__file__).parent))
-from conftest import ita, ita_ok
+from conftest import ita
 
 pytestmark = [
 	pytest.mark.stress,

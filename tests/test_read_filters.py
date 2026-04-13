@@ -17,7 +17,7 @@ def _make_filter(after_row=None, since_prompt=False, grep_rx=None):
 		if after_row is not None:
 			result = result[after_row:]
 		if grep_rx:
-			result = [l for l in result if grep_rx.search(l)]
+			result = [ln for ln in result if grep_rx.search(ln)]
 		if since_prompt:
 			for i in range(len(result) - 1, -1, -1):
 				if _is_prompt_line(result[i]):

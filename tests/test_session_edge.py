@@ -102,5 +102,5 @@ def test_capture_lines_1(session):
 	"""capture -n 1 must return at most 1 non-empty line."""
 	r = ita('capture', '-n', '1', '-s', session)
 	assert r.returncode == 0
-	lines = [l for l in r.stdout.splitlines() if l.strip()]
+	lines = [ln for ln in r.stdout.splitlines() if ln.strip()]
 	assert len(lines) <= 1

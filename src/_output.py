@@ -9,7 +9,7 @@ from _core import (cli, run_iterm, resolve_session, strip, last_non_empty_index,
 
 def _clean_lines(contents) -> list[str]:
 	result = [strip(contents.line(i).string) for i in range(contents.number_of_lines)]
-	result = [l for l in result if not _SENTINEL_RE.match(l)]
+	result = [ln for ln in result if not _SENTINEL_RE.match(ln)]
 	while result and not result[-1].strip():
 		result.pop()
 	return result
@@ -27,7 +27,7 @@ async def _session_meta(session) -> dict:
 async def _read_session(session, lines: int, scrollback: bool = False) -> dict:
 	if scrollback:
 		all_lines = await read_session_lines(session, include_scrollback=True)
-		result = [l for l in all_lines if not _SENTINEL_RE.match(l)]
+		result = [ln for ln in all_lines if not _SENTINEL_RE.match(ln)]
 		result = result[-lines:]
 	else:
 		contents = await session.async_get_screen_contents()
@@ -37,7 +37,7 @@ async def _read_session(session, lines: int, scrollback: bool = False) -> dict:
 		else:
 			start = max(0, last_idx + 1 - lines)
 			result = [strip(contents.line(i).string) for i in range(start, last_idx + 1)]
-			result = [l for l in result if not _SENTINEL_RE.match(l)]
+			result = [ln for ln in result if not _SENTINEL_RE.match(ln)]
 			while result and not result[-1].strip():
 				result.pop()
 	meta = await _session_meta(session)
@@ -75,7 +75,7 @@ def read(lines_arg, lines_opt, use_json, read_all, ids_only, scrollback,
 		if after_row is not None:
 			result = result[after_row:]
 		if grep_rx:
-			result = [l for l in result if grep_rx.search(l)]
+			result = [ln for ln in result if grep_rx.search(ln)]
 		if since_prompt:
 			# Scan backward to find the LAST prompt line; return everything after it.
 			for i in range(len(result) - 1, -1, -1):

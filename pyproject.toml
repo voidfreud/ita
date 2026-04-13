@@ -24,7 +24,7 @@ dev = [
 ]
 
 [tool.pytest.ini_options]
-pythonpath = ["src"]
+pythonpath = ["src", "tests"]
 # Run with: uv run --with pytest --with hypothesis --with click --with iterm2 pytest tests/
 # See docs/TESTING.md for marker semantics and CI lanes.
 markers = [

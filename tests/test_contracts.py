@@ -8,7 +8,7 @@ import re
 import pytest
 import jsonschema
 
-from conftest import ita, TEST_SESSION_PREFIX
+from conftest import ita
 
 # ---------------------------------------------------------------------------
 # Command inventory  (source of truth for parametrization)
@@ -238,7 +238,6 @@ def test_session_resolution_parity(cmd, session, shared_session):
 	"""ita <cmd> -s <NAME> and -s <UUID-prefix> yield the same outcome."""
 	_skip_if_gui(cmd)
 	# Get both the name and a UUID prefix for the shared_session
-	import subprocess
 	from pathlib import Path
 	ITA = Path(__file__).parent.parent / 'src' / 'ita.py'
 

@@ -2,11 +2,10 @@
 per-session JSON envelope, and --on-dead flag."""
 import json
 import sys
-import time
 import pytest
 
 sys.path.insert(0, str(__import__('pathlib').Path(__file__).parent))
-from conftest import ita, ita_ok
+from conftest import ita
 
 pytestmark = [pytest.mark.broadcast]
 

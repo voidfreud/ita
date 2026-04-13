@@ -165,7 +165,6 @@ def test_asyncio_task_leak():
 	Currently xfail: ita.py is a script, not an importable library.
 	Tracking: restructure ita into a library to enable in-process testing.
 	"""
-	import asyncio
 	# If ita were importable as a library this would work.  For now, force the
 	# xfail branch so the test is visible on the radar without blocking CI.
 	raise NotImplementedError(

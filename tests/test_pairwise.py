@@ -144,7 +144,7 @@ def test_read_n_lines(session, n):
 	ita('run', 'seq 1 50', '-s', session, timeout=15)
 	r = ita('read', str(n), '-s', session)
 	assert r.returncode == 0, f"read {n} failed: {r.stderr}"
-	lines = [l for l in r.stdout.splitlines() if l.strip()]
+	lines = [ln for ln in r.stdout.splitlines() if ln.strip()]
 	assert len(lines) <= n, f"read {n} returned {len(lines)} lines (expected ≤{n})"
 
 
@@ -157,7 +157,7 @@ def test_capture_n_lines(session, n):
 	ita('run', 'seq 1 30', '-s', session, timeout=15)
 	r = ita('capture', '-n', str(n), '-s', session)
 	assert r.returncode == 0, f"capture -n {n} failed: {r.stderr}"
-	lines = [l for l in r.stdout.splitlines() if l.strip()]
+	lines = [ln for ln in r.stdout.splitlines() if ln.strip()]
 	assert len(lines) <= n, f"capture -n {n} returned {len(lines)} lines (expected ≤{n})"
 
 

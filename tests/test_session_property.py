@@ -40,7 +40,7 @@ def test_capture_lines_cap_property(n, shared_session):
 	"""capture -n N must always return at most N lines."""
 	r = ita('capture', '-n', str(n), '-s', shared_session)
 	assert r.returncode == 0
-	lines = [l for l in r.stdout.splitlines() if l.strip()]
+	lines = [ln for ln in r.stdout.splitlines() if ln.strip()]
 	assert len(lines) <= n, f"capture -n {n} returned {len(lines)} lines"
 
 

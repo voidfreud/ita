@@ -10,7 +10,7 @@ Marks: @pytest.mark.contract + @pytest.mark.integration
 import time
 import pytest
 
-from conftest import ita, ita_ok, _extract_sid, TEST_SESSION_PREFIX
+from conftest import ita, _extract_sid, TEST_SESSION_PREFIX
 
 _READY_BUDGET = 10  # seconds
 _POLL_INTERVAL = 0.5
