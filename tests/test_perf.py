@@ -148,3 +148,110 @@ def test_perf_tab_list_json(benchmark, perf_session):
 	result = benchmark(_run, 'tab', 'list', '--json')
 	p50 = benchmark.stats.median
 	assert p50 < 0.200, f"tab list --json p50 too slow: {p50*1000:.1f}ms (budget 200ms)"
+
+
+# ---------------------------------------------------------------------------
+# #301 / #302 / #303 — new perf findings
+# ---------------------------------------------------------------------------
+
+@pytest.mark.xfail(strict=False, reason="#301: overview O(N) known regression with many sessions")
+def test_perf_overview_json_20_sessions(benchmark, session_factory):
+	"""ita overview --json with 20 sessions.  p50 < 1000 ms, p99 < 3000 ms.
+
+	Expected to FAIL today per #301 (O(N) overhead per session).
+	"""
+	session_factory(20)
+
+	benchmark.pedantic(lambda: _run('overview', '--json'), rounds=20, iterations=1, warmup_rounds=2)
+	p50 = benchmark.stats.median
+	p99 = _p99(benchmark.stats)
+	assert p50 < 1.000, f"overview --json p50 too slow: {p50*1000:.1f}ms (budget 1000ms)"
+	assert p99 < 3.000, f"overview --json p99 too slow: {p99*1000:.1f}ms (budget 3000ms)"
+
+
+@pytest.mark.xfail(strict=False, reason="#301: status O(N) known regression with many sessions")
+def test_perf_status_json_20_sessions(benchmark, session_factory):
+	"""ita status --json with 20 sessions.  p50 < 500 ms, p99 < 1500 ms.
+
+	Expected to FAIL today per #301.
+	"""
+	session_factory(20)
+
+	benchmark.pedantic(lambda: _run('status', '--json'), rounds=20, iterations=1, warmup_rounds=2)
+	p50 = benchmark.stats.median
+	p99 = _p99(benchmark.stats)
+	assert p50 < 0.500, f"status --json (20 sessions) p50 too slow: {p50*1000:.1f}ms (budget 500ms)"
+	assert p99 < 1.500, f"status --json (20 sessions) p99 too slow: {p99*1000:.1f}ms (budget 1500ms)"
+
+
+def test_perf_new_startup_cost(benchmark):
+	"""ita new subprocess spawn-to-rc: isolates import-cost contribution (#303).
+
+	Measures wall time from spawn to exit — pure import + startup overhead.
+	p50 budget: 500 ms.  No xfail: if import cost is this bad we want the noise.
+	"""
+	created = []
+
+	def _spawn():
+		r = _run('new', '--name', 'ita-test-perf-startup')
+		if r.returncode == 0:
+			parts = r.stdout.strip().split('\t')
+			sid = parts[-1] if len(parts) > 1 else parts[0]
+			created.append(sid)
+		return r
+
+	benchmark.pedantic(_spawn, rounds=20, iterations=1, warmup_rounds=3)
+
+	for sid in created:
+		ita('close', '-s', sid, timeout=10)
+
+	p50 = benchmark.stats.median
+	assert p50 < 0.500, (
+		f"new startup p50 too slow: {p50*1000:.1f}ms (budget 500ms) — "
+		"likely high import cost, see #303"
+	)
+
+
+@pytest.mark.xfail(strict=False, reason="#303: ita version may be making API calls — candidate bug")
+def test_perf_version_hard_budget(benchmark):
+	"""ita version  p50 < 50 ms hard budget.
+
+	Re-asserts the existing version budget in the new findings context.
+	Failing here means version is making API calls (#303 candidate bug).
+	"""
+	benchmark.pedantic(lambda: _run('version'), rounds=20, iterations=1, warmup_rounds=3)
+	p50 = benchmark.stats.median
+	assert p50 < 0.050, (
+		f"version p50 too slow: {p50*1000:.1f}ms (budget 50ms) — "
+		"version is likely making an iTerm2 API call (candidate bug, see #303)"
+	)
+
+
+@pytest.mark.xfail(strict=False, reason="#302: ita new fresh-name O(N) cost expected to degrade with 50 sessions")
+def test_perf_new_with_50_existing_sessions(benchmark, session_factory):
+	"""ita new with 50 pre-existing sessions.  Measures fresh-name O(N) cost (#302).
+
+	Compare degradation against test_perf_new_close (clean env).
+	p50 budget: 1500 ms (50% slack over clean-env budget of 1000 ms).
+	"""
+	session_factory(50)
+
+	created = []
+
+	def _create():
+		r = _run('new', '--name', 'ita-test-perf-on')
+		if r.returncode == 0:
+			parts = r.stdout.strip().split('\t')
+			sid = parts[-1] if len(parts) > 1 else parts[0]
+			created.append(sid)
+		return r
+
+	benchmark.pedantic(_create, rounds=20, iterations=1, warmup_rounds=2)
+
+	for sid in created:
+		ita('close', '-s', sid, timeout=10)
+
+	p50 = benchmark.stats.median
+	p99 = _p99(benchmark.stats)
+	assert p50 < 1.500, f"new (50 existing) p50 too slow: {p50*1000:.1f}ms (budget 1500ms)"
+	assert p99 < 4.000, f"new (50 existing) p99 too slow: {p99*1000:.1f}ms (budget 4000ms)"
