@@ -8,6 +8,7 @@ import json
 import os
 import re
 import sys
+import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from collections.abc import Awaitable, Callable
@@ -65,6 +66,8 @@ def check_protected(session_id: str, force: bool = False) -> None:
 #     {session_id: {"pid": int, "at": iso8601}}
 
 WRITELOCK_FILE = Path.home() / ".ita_writelock"
+# Cookies for locks acquired by this process instance; keyed by session_id.
+_held_cookies: dict[str, str] = {}
 
 
 def _load_writelocks() -> dict:
@@ -98,13 +101,13 @@ def _pid_alive(pid: int) -> bool:
 
 
 def acquire_writelock(session_id: str) -> bool:
-	"""Try to claim the write-lock. Returns False if another *live* PID
-	holds it; stale locks are silently reclaimed. Single-host only.
+	"""Try to claim the write-lock. Returns False if another *live* PID+cookie
+	holds it; stale locks (dead PID or no cookie) are silently reclaimed.
 
-	fcntl.LOCK_EX serialises concurrent callers so the read-check-write
-	sequence is atomic on the local filesystem (fixes TOCTOU, #197).
-	os.getppid() stores the invoking shell's PID rather than the
-	short-lived CLI process so the lock survives until the shell exits (#196)."""
+	Owner identity is {pid, cookie} so same-parent invocations (#282) can't
+	collide: each process gets its own unique cookie written atomically via
+	fcntl.LOCK_EX (fixes TOCTOU, #197)."""
+	cookie = uuid.uuid4().hex
 	with open(WRITELOCK_FILE, 'a+') as f:
 		fcntl.flock(f, fcntl.LOCK_EX)
 		f.seek(0)
@@ -114,24 +117,36 @@ def acquire_writelock(session_id: str) -> bool:
 		except json.JSONDecodeError:
 			data = {}
 		entry = data.get(session_id)
-		if entry and _pid_alive(int(entry.get('pid', 0))):
+		# Old-format entries (no cookie) are treated as stale and reclaimed.
+		if entry and entry.get('cookie') and _pid_alive(int(entry.get('pid', 0))):
 			return False
 		data[session_id] = {
-			'pid': os.getppid(),
+			'pid': os.getpid(),
+			'cookie': cookie,
 			'at': datetime.now(timezone.utc).isoformat(timespec='seconds'),
 		}
 		f.seek(0)
 		f.truncate()
 		f.write(json.dumps(data, indent=2) + '\n')
+	_held_cookies[session_id] = cookie
 	return True
 
 
 def release_writelock(session_id: str) -> None:
-	"""Release iff held by this process. No-op otherwise, so safe in finally."""
+	"""Release iff held by this process (matched by cookie). No-op otherwise, so safe in finally."""
 	data = _load_writelocks()
 	entry = data.get(session_id)
-	if entry and int(entry.get('pid', 0)) == os.getppid():
+	if entry:
+		stored_cookie = entry.get('cookie')
+		our_cookie = _held_cookies.get(session_id)
+		# New-format: must match cookie. Old-format (no cookie): fall back to pid.
+		if stored_cookie is not None:
+			if stored_cookie != our_cookie:
+				return
+		elif int(entry.get('pid', 0)) != os.getpid():
+			return
 		data.pop(session_id, None)
+		_held_cookies.pop(session_id, None)
 		_save_writelocks(data)
 
 
