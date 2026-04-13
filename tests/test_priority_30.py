@@ -81,7 +81,6 @@ def test_trust_04_var_list_missing_session():
 
 
 @pytest.mark.contract
-@pytest.mark.known_broken  # #249
 def test_trust_05_broadcast_on_missing_session():
 	"""
 	(a) Never-lie: broadcast on targeting a missing session must not silently no-op.

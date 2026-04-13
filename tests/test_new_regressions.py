@@ -248,19 +248,35 @@ def test_issue_220_broadcast_add_merges_not_replaces(session):
 
 # ── #249 broadcast on success-but-empty ──────────────────────────────────────
 
-def test_issue_249_broadcast_on_verifies_persistence(session):
-	"""#249: `broadcast on` must fail explicitly if iTerm2 didn't persist the domain.
-	Fixed: after set, refresh and check domains non-empty."""
-	# Normal path: broadcast on should succeed and result in a domain.
+def test_issue_249_broadcast_on_single_session_rejected(session):
+	"""#249: `broadcast on -s ONE` with no existing domain must fail up-front.
+
+	iTerm2 silently drops broadcast domains with <2 sessions (nothing to
+	mirror to), so we used to report success while state remained empty —
+	a CONTRACT §14.1 "never lie" violation. The fix refuses the write
+	with rc != 0 and actionable guidance toward `broadcast add` /
+	`broadcast set` / `broadcast on --window`."""
 	r = ita('broadcast', 'on', '-s', session)
-	assert r.returncode == 0, f"broadcast on failed: {r.stderr}"
-	try:
-		r_list = ita('broadcast', 'list', '--json')
-		assert r_list.returncode == 0, f"broadcast list failed: {r_list.stderr}"
-		domains = json.loads(r_list.stdout)
-		assert len(domains) > 0, (
-			"#249: broadcast on exited 0 but no domains are registered; "
-			"would have been silent failure before fix"
-		)
-	finally:
-		ita('broadcast', 'off', '-y')
+	assert r.returncode != 0, (
+		f"#249: single-session broadcast on must fail, got rc=0. stderr={r.stderr}"
+	)
+	assert 'at least 2 sessions' in r.stderr, (
+		f"#249: error must explain the ≥2 requirement; got {r.stderr!r}"
+	)
+	# And state stays empty — no silent side-effect.
+	r_list = ita('broadcast', 'list', '--json')
+	assert r_list.returncode == 0
+	assert json.loads(r_list.stdout) == []
+
+
+def test_issue_249_broadcast_list_reflects_reality_after_rejection(session):
+	"""#249 §14.1: after a rejected `broadcast on`, broadcast list must
+	reflect reality — no phantom domain silently written."""
+	ita('broadcast', 'off', '-y')
+	r = ita('broadcast', 'on', '-s', session)
+	assert r.returncode != 0, "singleton broadcast on must be rejected"
+	r_list = ita('broadcast', 'list', '--json')
+	assert r_list.returncode == 0
+	assert json.loads(r_list.stdout) == [], (
+		"#249: list must show reality; rejected `broadcast on` must not leave residue"
+	)

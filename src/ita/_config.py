@@ -479,29 +479,48 @@ def broadcast_on(session_id, window_id, replace, quiet, dry_run, confirm, yes):
 			# If there's already a domain, extend the first one; else create new.
 			if existing:
 				target_domain = existing[0]
-				target_domain.add_session(session)
+				# Skip if the session is already a member — avoids creating a
+				# technically-valid write that no-ops at the iTerm2 layer.
+				if session.session_id not in {s.session_id for s in target_domain.sessions}:
+					target_domain.add_session(session)
 				domains = existing
 			else:
-				d = iterm2.BroadcastDomain()
-				d.add_session(session)
-				domains = [d]
+				# #249: iTerm2 silently drops broadcast domains with <2 sessions
+				# (broadcast is a mirror operation — nothing to mirror to).
+				# `broadcast on -s ONE` with no existing domain would previously
+				# report success but leave state empty (CONTRACT §14.1 never
+				# lie). Refuse up-front with actionable guidance.
+				raise ItaError("bad-args",
+					f"broadcast domain requires at least 2 sessions; only {session_id!r} given "
+					"and no existing domain to merge into. "
+					"Use `ita broadcast add SID1 SID2 [...]` or `ita broadcast set SID1,SID2` "
+					"to create a multi-session domain, or `ita broadcast on --window WINDOW` "
+					"for a window with ≥2 panes (#249).")
 			await iterm2.async_set_broadcast_domains(connection, domains)
 		else:
 			w = app.get_window_by_id(window_id)
 			if not w:
 				raise ItaError("not-found", f"Window {window_id!r} not found.")
 			new_domain = iterm2.BroadcastDomain()
-			for tab in w.tabs:
-				for sess in tab.sessions:
-					new_domain.add_session(sess)
+			win_sessions = [sess for tab in w.tabs for sess in tab.sessions]
+			# #249: same <2-session rule applies to the window form.
+			if len(win_sessions) < 2:
+				raise ItaError("bad-args",
+					f"window {window_id!r} has {len(win_sessions)} session(s); "
+					"broadcast requires at least 2 sessions to mirror input. "
+					"Split the window into more panes first (#249).")
+			for sess in win_sessions:
+				new_domain.add_session(sess)
 			await iterm2.async_set_broadcast_domains(connection, existing + [new_domain])
 
-		# Verify the API actually persisted the change (#249).
+		# Verify the API actually persisted the change (#249). Structured
+		# error so the envelope surfaces a proper rc=6 ItaError rather than
+		# an unstructured ClickException.
 		await app.async_refresh_broadcast_domains()
 		if not app.broadcast_domains:
-			raise click.ClickException(
-				"Broadcast enabled call succeeded but no domains were registered. "
-				"iTerm2 may have silently rejected the request.")
+			raise ItaError("bad-args",
+				"broadcast enabled call succeeded but no domains were registered; "
+				"iTerm2 silently rejected the request (#249, CONTRACT §14.1).")
 	run_iterm(_run)
 	success_echo(f"Broadcast enabled: {target}", quiet=quiet)
 
