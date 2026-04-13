@@ -3,14 +3,25 @@
 Kept separate from ``_contract_categories`` (pure data) so the test file
 itself stays small and readable. These helpers are fast-lane-safe: none
 of them require a live iTerm2 unless the caller explicitly opts in.
+
+Performance note (#292): the matrix invokes ita hundreds of times per
+run. Subprocess dispatch dominated (~500 ms each × 328 cells ≈ 170 s).
+We now dispatch in-process via Click's ``CliRunner`` — ~20× faster —
+and keep a handful of genuine subprocess smokes in the matrix to guard
+the OS entry-point path (argv parsing, console script, `python -m ita`).
 """
 from __future__ import annotations
 
 import json
 import subprocess
+from types import SimpleNamespace
 from typing import Any
 
-from helpers import ITA_CMD, ita
+from click.testing import CliRunner
+
+from helpers import ita
+from ita import cli as _cli
+from ita._envelope import EXIT_CODES, SCHEMA_VERSION, ItaError
 
 
 # Sentinel target guaranteed not to exist. Used by rule 1 / 3 / 5 to drive
@@ -19,14 +30,84 @@ from helpers import ITA_CMD, ita
 GHOST_SID = "nonexistent-session-xyz"
 
 
-def invoke(*args: str, timeout: int = 15) -> subprocess.CompletedProcess:
-	"""Thin wrapper around ``helpers.ita`` with a consistent short timeout
-	for matrix tests. Never raises — callers inspect rc/stdout/stderr."""
+# ── In-process invocation (fast path) ──────────────────────────────────────
+# CliRunner runs the Click group in the current interpreter. Callbacks that
+# reach for the iTerm2 async API will raise before touching the network
+# because there's no event loop; that's exactly the error path the matrix
+# is probing for, so it's a feature.
+#
+# @ita_command-wrapped callbacks emit their §4 envelope on stdout themselves
+# (see src/ita/_envelope.py), so ItaError → envelope translation is handled
+# by the command layer — CliRunner just captures stdout. For legacy raises
+# we fall through to Click's default ClickException rendering, which the
+# matrix's rule-1 probe treats as rc!=0 / no envelope (pytest.skip path).
+
+def _uses_json(args: tuple[str, ...]) -> bool:
+	return any(a in ("--json", "--as-json") for a in args)
+
+
+def invoke(*args: str, timeout: int = 15) -> SimpleNamespace:
+	"""Invoke `ita <args...>` in-process.
+
+	Returns a ``SimpleNamespace`` with ``returncode``, ``stdout``, ``stderr``
+	to match ``subprocess.CompletedProcess`` duck-typing — existing matrix
+	tests read only those three attrs.
+
+	*timeout* is accepted for API parity with the subprocess shim but has
+	no effect in-process; the pytest ``--timeout`` wraps the whole test.
+
+	ItaError fallback: non-migrated commands raise ``ItaError`` instead of
+	emitting their own envelope; the real CLI's ``main()`` wraps that and
+	writes the §4 error envelope on --json. CliRunner bypasses ``main()``,
+	so we replicate the fallback here to keep test semantics identical to
+	the subprocess path.
+	"""
+	runner = CliRunner()
+	# standalone_mode=False mirrors src/ita/__init__.py::main: Click won't
+	# auto-handle ClickException / ItaError, so we receive the exception on
+	# ``result.exception`` and can apply the envelope fallback below.
+	result = runner.invoke(
+		_cli, list(args), catch_exceptions=True, standalone_mode=False,
+	)
+	exc = result.exception
+	if isinstance(exc, ItaError):
+		exit_code = EXIT_CODES[exc.code]
+		stdout = result.output
+		if _uses_json(args):
+			envelope = {
+				"schema": SCHEMA_VERSION,
+				"ok": False,
+				"op": args[0] if args else "",
+				"target": None,
+				"state_before": None,
+				"state_after": None,
+				"elapsed_ms": 0,
+				"warnings": [],
+				"error": {"code": exc.code, "reason": exc.reason},
+				"data": {},
+			}
+			stdout = json.dumps(envelope) + "\n"
+		return SimpleNamespace(
+			returncode=exit_code,
+			stdout=stdout,
+			stderr=result.stderr,
+		)
+	return SimpleNamespace(
+		returncode=result.exit_code,
+		stdout=result.output,
+		stderr=result.stderr,
+	)
+
+
+def invoke_subprocess(*args: str, timeout: int = 15) -> subprocess.CompletedProcess:
+	"""Genuine subprocess invocation — reserved for the matrix's OS-path
+	smoke tests. Exercises argv parsing, console-script dispatch, and the
+	`python -m ita` entrypoint that in-process ``invoke`` bypasses."""
 	return ita(*args, timeout=timeout)
 
 
-def invoke_json(*args: str, timeout: int = 15) -> tuple[subprocess.CompletedProcess, dict[str, Any] | None]:
-	"""Invoke with --json appended. Returns (completed, parsed-envelope-or-None).
+def invoke_json(*args: str, timeout: int = 15) -> tuple[SimpleNamespace, dict[str, Any] | None]:
+	"""Invoke with --json appended. Returns (result, parsed-envelope-or-None).
 
 	Envelope parse is best-effort: if stdout isn't JSON (e.g. the command
 	doesn't support --json), the second element is None and the caller
@@ -122,9 +203,18 @@ def assert_identity_required(cmd_path: str) -> None:
 		)
 
 
+# Shared-state hygiene: see the ``_reset_ita_module_state`` autouse fixture
+# at the top of ``test_contract_matrix.py``. It clears ``ita._lock``'s two
+# module-level mutables between cells so CliRunner's shared interpreter
+# can't leak state. Matrix cells drive --help / ghost-SID / --json paths
+# that bail before lock acquisition, so in practice neither mutates; the
+# reset is belt-and-suspenders for future callers.
+
+
 __all__ = [
 	"GHOST_SID",
 	"invoke",
+	"invoke_subprocess",
 	"invoke_json",
 	"split_path",
 	"looks_like_envelope",

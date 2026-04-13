@@ -7,11 +7,19 @@ otherwise.
 
 Companion modules:
   tests/_contract_categories.py  — command → category map (data)
-  tests/_contract_helpers.py     — shared assertion helpers
+  tests/_contract_helpers.py     — shared assertion helpers + invoke()
+
+Invocation strategy (#292): the bulk matrix runs in-process via Click's
+``CliRunner`` (see ``_contract_helpers.invoke``). Three explicit smoke
+tests at the bottom of this module shell out to the real `python -m ita`
+entrypoint so argv parsing, console-script dispatch, and __main__
+wiring stay covered.
 
 Rule 6 (readiness) is deferred to the integration lane per task #8.
 """
 from __future__ import annotations
+
+import json
 
 import pytest
 
@@ -30,6 +38,7 @@ from _contract_helpers import (
 	assert_stdout_clean,
 	invoke,
 	invoke_json,
+	invoke_subprocess,
 	split_path,
 )
 
@@ -37,17 +46,30 @@ from _contract_helpers import (
 pytestmark = pytest.mark.contract
 
 
+# ── Shared-state reset (CliRunner hygiene) ─────────────────────────────────
+# Every cell runs in the same interpreter now. Reset known ita module-level
+# globals so earlier cells can't leak state into later ones. Cheap; see
+# _contract_helpers.py for the rationale.
+
+@pytest.fixture(autouse=True)
+def _reset_ita_module_state():
+	from ita import _lock
+	_lock._held_cookies.clear()
+	_lock._FORCE_DEPRECATION_WARNED = False
+	yield
+	_lock._held_cookies.clear()
+	_lock._FORCE_DEPRECATION_WARNED = False
+
+
 # ── Surface coverage guard ──────────────────────────────────────────────────
 # If a new ita command ships without landing in CATEGORIES, this test fails
-# and the matrix refuses to drift. Fast-lane: shells out once to `ita
-# commands --json`, which is pure meta and touches nothing.
+# and the matrix refuses to drift.
 
 def test_categorization_covers_surface():
 	"""Every leaf command from `ita commands --json` must be categorized."""
-	import json as _json
 	r = invoke("commands", "--json", timeout=10)
 	assert r.returncode == 0, f"`ita commands --json` failed: {r.stderr}"
-	tree = _json.loads(r.stdout)
+	tree = json.loads(r.stdout)
 
 	leaves: set[str] = set()
 
@@ -183,17 +205,15 @@ def test_rule2_utf8_lone_surrogate_rejected(cmd: str):
 	rc=6, not be silently mangled. Exercises the argv validation path —
 	no live session needed since the surrogate rejection happens before
 	target resolution."""
-	# Lone high surrogate. At the shell layer python will encode argv via
-	# fs-encoding; we pass it through subprocess as text. If the subprocess
-	# itself rejects the arg before launch, we treat that as pass too.
+	# Lone high surrogate. In-process we pass the str straight through;
+	# if Click or the command rejects it that's equivalent to loud failure.
 	bad = "\ud83d"  # lone high surrogate
 	try:
 		r = invoke(*split_path(cmd), "-s", GHOST_SID, bad, timeout=10)
 	except (UnicodeEncodeError, ValueError):
-		# Python refused to even build the argv — equivalent to loud failure.
+		# Runtime refused to even build the call — equivalent to loud failure.
 		return
 	assert r.returncode != 0, f"§14.2: {cmd} accepted lone surrogate silently"
-	# stderr should mention the error class; we don't pin the exact string.
 
 
 # ── Rule 3: exit code matches envelope ─────────────────────────────────────
@@ -211,7 +231,6 @@ def test_rule3_rc_matches_envelope_on_ghost_target(cmd: str):
 		pytest.skip(f"{cmd} is streaming — covered under integration lane")
 	# Build minimal argv (same table as rule 1 — keep duplication local,
 	# it's only a handful of commands that need positionals).
-	extra: list[str] = []
 	positional_map = {
 		"run": ["echo", "x"], "send": ["x"], "inject": ["x"], "key": ["ctrl-c"],
 		"name": ["n"], "annotate": ["n"], "tab title": ["t"], "window title": ["t"],
@@ -296,3 +315,36 @@ def test_rule6_readiness_deferred(cmd: str):
 	"""§14.6 placeholder — TODO(#292, task #8): create-then-return commands
 	must not return before session is ready (or --no-wait given)."""
 	pass
+
+
+# ── OS entry-point smoke tests (real subprocess) ───────────────────────────
+# The bulk matrix above runs in-process via CliRunner for speed. These
+# three smokes exercise the actual `python -m ita` entrypoint so argv
+# parsing, console-script wiring, __main__.main() and the auto-protect
+# side-effect path stay covered. Cost: ~3 × ~500 ms ≈ 1.5 s total.
+
+def test_subprocess_smoke_help():
+	"""Real subprocess: `ita --help` returns rc=0 with clean stdout."""
+	r = invoke_subprocess("--help", timeout=15)
+	assert r.returncode == 0, f"ita --help failed: {r.stderr}"
+	assert "Usage:" in r.stdout
+	assert "Traceback" not in r.stdout
+	assert "Traceback" not in r.stderr
+
+
+def test_subprocess_smoke_version():
+	"""Real subprocess: `ita --version` returns rc=0 and prints a version."""
+	r = invoke_subprocess("--version", timeout=15)
+	assert r.returncode == 0, f"ita --version failed: {r.stderr}"
+	assert "version" in r.stdout.lower()
+	assert "Traceback" not in r.stderr
+
+
+def test_subprocess_smoke_commands_json():
+	"""Real subprocess: `ita commands --json` emits a parseable tree.
+	Guards the console-script / __main__ path that CliRunner bypasses."""
+	r = invoke_subprocess("commands", "--json", timeout=15)
+	assert r.returncode == 0, f"ita commands --json failed: {r.stderr}"
+	tree = json.loads(r.stdout)
+	assert "commands" in tree, "missing top-level 'commands' key"
+	assert "Traceback" not in r.stderr

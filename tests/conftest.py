@@ -72,7 +72,14 @@ def pytest_runtest_teardown(item, nextitem):
 	"""After every test, check the leak ceiling on BOTH ita-test-* sessions
 	AND orphan default windows (#348). Hard-abort if either exceeded —
 	emergency-close survivors first so the abort itself doesn't leave the
-	machine in a worse state."""
+	machine in a worse state.
+
+	Fast-path (#292): contract-marker tests in the fast lane never create
+	iTerm2 state (they drive --help and ghost-SID paths). Skipping the
+	~0.28s shell-out per test is what lets the CliRunner matrix hit its
+	performance target."""
+	if 'contract' in item.keywords and 'integration' not in item.keywords:
+		return
 	sess_count = _count_test_sessions()
 	win_count = _count_orphan_windows()
 	if sess_count > LEAK_CEILING or win_count > LEAK_CEILING:
