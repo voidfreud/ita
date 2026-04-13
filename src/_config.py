@@ -154,10 +154,9 @@ def var_list(scope, session_id, use_json):
 				w = app.current_terminal_window
 				target = w.current_tab if w else None
 			else:
-				try:
-					target = await resolve_session(connection, session_id)
-				except click.ClickException:
-					target = None
+				target = await resolve_session(connection, session_id)
+				if target is None:
+					raise click.ClickException(f"Session not found: {session_id!r}")
 			scope_vals = {}
 			if target is not None:
 				for name in _KNOWN_VARS[sc]:
@@ -216,7 +215,7 @@ def app_hide():
 	"""Hide iTerm2."""
 	import subprocess
 	subprocess.run(['osascript', '-e',
-		'tell application "iTerm2" to set miniaturized of every window to true'])
+		'tell application "System Events" to set visible of process "iTerm2" to false'])
 
 
 @app_group.command('quit')
@@ -352,7 +351,8 @@ def pref_theme():
 @pref.command('tmux')
 @click.argument('key', required=False)
 @click.argument('value', required=False)
-def pref_tmux(key, value):
+@click.option('-q', '--quiet', is_flag=True, help='Suppress confirmation.')
+def pref_tmux(key, value, quiet):
 	"""Get all tmux prefs, or set a specific one.
 	Key is a PreferenceKey enum name (e.g. OPEN_TMUX_WINDOWS_IN)."""
 	async def _run(connection):
@@ -366,7 +366,9 @@ def pref_tmux(key, value):
 					'AUTO_HIDE_TMUX_CLIENT_SESSION', 'USE_TMUX_PROFILE']
 			return {k: await iterm2.async_get_preference(connection, _resolve_pref_key(k)) for k in keys}
 	result = run_iterm(_run)
-	if isinstance(result, dict):
+	if key and value:
+		success_echo(f"Set: {key}", quiet=quiet)
+	elif isinstance(result, dict):
 		click.echo(json.dumps(result, indent=2))
 
 
