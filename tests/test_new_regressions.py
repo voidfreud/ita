@@ -14,7 +14,6 @@ pytestmark = [pytest.mark.regression]
 
 # ── #282 write-lock PPID ──────────────────────────────────────────────────────
 
-@pytest.mark.known_broken
 def test_issue_282_write_lock_ppid_collision(session):
 	"""#282: Two subprocesses sharing same PPID can acquire same session lock.
 	Expected fix: lock key must include PID, not just PPID."""
@@ -41,7 +40,6 @@ def test_issue_282_write_lock_ppid_collision(session):
 
 # ── #283 bulk clear bypasses check_protected ─────────────────────────────────
 
-@pytest.mark.known_broken
 def test_issue_283_clear_all_ignores_protected(session):
 	"""#283: `ita clear --all` bypasses check_protected, wiping protected sessions.
 	Expected fix: clear --all must honour protection flag."""

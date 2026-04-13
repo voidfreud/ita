@@ -442,6 +442,11 @@ def clear_screen(session_id, filter_expr, all_flag, dry_run, quiet, force):
 		if filter_expr:
 			pairs = [(s, r) for s, r in pairs if match_filter(r, key, op, value)]
 		for s, r in pairs:
+			try:
+				check_protected(r['session_id'], force=force)
+			except Exception as exc:
+				click.echo(f"Skipped {r['session_id'][:8]}…: {exc}", err=True)
+				continue
 			cleared.append(r)
 			if not dry_run:
 				# WARNING: bulk ops are not write-locked per-session.
