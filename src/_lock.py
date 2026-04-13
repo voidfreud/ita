@@ -70,7 +70,7 @@ def unlock(session_id, force, dry_run, quiet):
 	data = get_writelocks()
 	entry = data.get(sid)
 	if entry is None:
-		click.echo(f"Not write-locked: {sid}")
+		success_echo(f"Not write-locked: {sid}", quiet)
 		return
 	import os
 	if int(entry.get('pid', 0)) != os.getppid():
@@ -80,7 +80,7 @@ def unlock(session_id, force, dry_run, quiet):
 			data.pop(sid, None)
 			from _core import _save_writelocks
 			_save_writelocks(data)
-			click.echo(f"Cleared stale lock: {sid}")
+			success_echo(f"Cleared stale lock: {sid}", quiet)
 			return
 		raise click.ClickException(
 			f"Session {sid[:8]}… is write-locked by pid {entry.get('pid')}, "

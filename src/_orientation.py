@@ -84,7 +84,7 @@ def focus(use_json):
 	result = run_iterm(_run)
 	if not result:
 		if use_json:
-			click.echo(json.dumps({'window_id': None, 'tab_id': None, 'session_id': None}, ensure_ascii=False))
+			click.echo(json.dumps({'window_id': None, 'tab_id': None, 'session_id': None, 'session_name': None}, ensure_ascii=False))
 		else:
 			click.echo("No focused window")
 		return
