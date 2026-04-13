@@ -34,14 +34,34 @@ def test_wait_fixed_string_match(session):
 
 
 def test_wait_timeout_json_matched_false(session):
-	"""When pattern not found within timeout, --json returns matched:false."""
+	"""When pattern not found within timeout, --json returns matched:false and rc=4 (§6)."""
 	r = ita('wait', '--pattern', 'NEVER_APPEARS_XYZZY', '--json', '-t', '2', '-s', session)
-	assert r.returncode == 0
+	# #231: timeout is rc=4 per CONTRACT §6, mode-independent.
+	assert r.returncode == 4
 	data = json.loads(r.stdout)
 	assert data['matched'] is False
 	assert data['line'] is None
 	assert isinstance(data['elapsed_ms'], int)
 	assert data['elapsed_ms'] >= 2000
+
+
+def test_wait_timeout_plain_and_json_rc_match(session):
+	"""#231: plain-mode and --json-mode rc must agree on timeout (§6 mode-independence)."""
+	plain = ita('wait', '--pattern', 'NEVER_XYZZY_231', '-t', '2', '-s', session)
+	js = ita('wait', '--pattern', 'NEVER_XYZZY_231', '--json', '-t', '2', '-s', session)
+	assert plain.returncode == 4
+	assert js.returncode == 4
+	assert plain.returncode == js.returncode
+	assert 'timeout' in plain.stderr.lower()
+
+
+def test_wait_plain_match_confirms_on_stderr(session):
+	"""#231: plain-mode match emits 'matched: ...' on stderr, rc=0."""
+	ita_ok('run', 'echo WAIT_STDERR_MARK_231', '-s', session)
+	r = ita('wait', '--pattern', 'WAIT_STDERR_MARK_231', '-t', '10', '-s', session)
+	assert r.returncode == 0
+	assert 'matched' in r.stderr.lower()
+	assert 'WAIT_STDERR_MARK_231' in r.stderr
 
 
 @pytest.mark.error
@@ -64,8 +84,9 @@ def test_wait_timeout_without_json_without_pattern_exits_zero(session):
 def test_wait_pattern_timeout_without_json_raises(session):
 	"""wait --pattern timeout (no --json) raises ClickException → non-zero rc."""
 	r = ita('wait', '--pattern', 'NEVER_XYZZY_TIMEOUT', '-t', '2', '-s', session)
-	assert r.returncode != 0
-	assert 'Timeout' in r.stderr
+	# #231: timeout = rc=4 per CONTRACT §6.
+	assert r.returncode == 4
+	assert 'timeout' in r.stderr.lower()
 
 
 @pytest.mark.contract
