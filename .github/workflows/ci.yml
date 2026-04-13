@@ -151,6 +151,55 @@ jobs:
       - name: Test (stress)
         run: uv run pytest --strict-markers -m stress --timeout=600 -q
 
+  # ── flaky staleness — weekly + every push ───────────────────────────────────
+  flaky-staleness:
+    name: xfail_flaky staleness check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Fail if any xfail_flaky test untouched for >6 months
+        run: |
+          python3 - <<'EOF'
+          import subprocess, sys
+          from datetime import datetime, timezone, timedelta
+
+          CUTOFF = datetime.now(timezone.utc) - timedelta(days=183)
+
+          result = subprocess.run(
+          	["git", "grep", "-rl", "xfail_flaky", "--", "tests/"],
+          	capture_output=True, text=True,
+          )
+          files = [f.strip() for f in result.stdout.splitlines() if f.strip()]
+
+          stale = []
+          for path in files:
+          	log = subprocess.run(
+          		["git", "log", "-1", "--format=%ci", "--", path],
+          		capture_output=True, text=True,
+          	)
+          	date_str = log.stdout.strip()
+          	if not date_str:
+          		stale.append((path, "no commits found"))
+          		continue
+          	last_touched = datetime.fromisoformat(date_str)
+          	if last_touched < CUTOFF:
+          		age_days = (datetime.now(timezone.utc) - last_touched).days
+          		stale.append((path, f"last touched {age_days}d ago"))
+
+          if stale:
+          	print("ERROR: xfail_flaky tests not triaged in >6 months:")
+          	for path, reason in stale:
+          		print(f"  {path}: {reason}")
+          	print()
+          	print("Run `python scripts/flake_check.py` and triage per docs/TESTING.md §7.2.")
+          	sys.exit(1)
+
+          print(f"OK — {len(files)} file(s) checked, all within 6 months.")
+          EOF
+
   # ── perf — nightly ──────────────────────────────────────────────────────────
   perf:
     name: perf benchmarks
@@ -180,3 +229,36 @@ jobs:
       - name: Test (perf benchmarks)
         if: steps.perf_exists.outputs.exists == 'true'
         run: uv run pytest --strict-markers -m perf --benchmark-only -q
+
+  mutation:
+    name: Mutation testing (manual)
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch'
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v4
+        with:
+          enable-cache: true
+
+      - name: Install deps
+        run: uv sync --extra dev
+
+      - name: Run mutmut
+        run: uv run mutmut run --simple-output
+
+      - name: Upload mutmut cache
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mutmut-cache
+          path: .mutmut-cache
+
+      - name: Write summary
+        if: always()
+        run: |
+          echo "## Mutation Testing Results" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          uv run mutmut results >> "$GITHUB_STEP_SUMMARY" 2>&1 || true
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
