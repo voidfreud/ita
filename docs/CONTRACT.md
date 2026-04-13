@@ -160,6 +160,21 @@ Every session has exactly one state at any time:
 - `ita status --json -s <id>` is the cheap canonical lookup.
 - Transitions are derived, not stored; `_readiness._probe` is the source of truth.
 
+**Canonical derivation.** `ita._state.derive_state(app, session)` is the single
+implementation. Callers MUST use it — no command may reimplement the decision
+tree locally. This keeps the state enum observably consistent across
+`status`, `session info`, `overview`, and every future surface.
+
+**`timed_out` is caller-set, never derived.** `derive_state` only reports the
+*current* state of a session; it never returns `timed_out`. Commands that
+hit their own deadline set `state_after = "timed_out"` on the envelope
+explicitly (per §8). A subsequent `derive_state` call re-observes whatever
+state the session is now in (often `busy` or `ready`).
+
+**Enum stability.** The eight state strings are stable schema. Adding a new
+state, renaming one, or changing the priority order is a breaking change
+and requires bumping the envelope schema to `ita/2` (per §15).
+
 Issues codified: #267, #288.
 
 ---
