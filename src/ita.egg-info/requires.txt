@@ -1,0 +1,10 @@
+
+[dev]
+pytest
+hypothesis
+pytest-cov
+pytest-xdist
+pytest-timeout
+pytest-benchmark
+jsonschema
+ruff

@@ -1,0 +1,2 @@
+[console_scripts]
+ita = ita:cli
