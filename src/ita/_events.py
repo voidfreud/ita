@@ -2,11 +2,24 @@
 """Event monitoring and advanced commands: on group, coprocess, annotate, rpc."""
 import asyncio
 import json
+import os
 import re
 import click
 import iterm2
 from ._core import cli, run_iterm, resolve_session, strip, PROMPT_CHARS, last_non_empty_index
 from ._envelope import ItaError
+
+
+def _debug_warn(where: str, exc: BaseException) -> None:
+	"""#316: surface swallowed best-effort exceptions when ITA_DEBUG=1.
+
+	These sites (name snapshot, unsubscribe-in-finally) are genuinely
+	non-fatal — the primary result is already in hand — but silent `except
+	Exception: pass` hid real bugs. Log under ITA_DEBUG so the info is
+	reachable without polluting normal stderr.
+	"""
+	if os.environ.get('ITA_DEBUG') == '1':
+		click.echo(f"ita[debug]: {where}: {type(exc).__name__}: {exc}", err=True)
 
 
 @cli.group()
@@ -186,14 +199,17 @@ def on_session_new(timeout, use_json):
 			raise click.ClickException(
 				f"Could not extract UUID from new-session payload: {raw!r}")
 		# Best-effort name resolution — session may not be fully registered yet.
+		# #316: narrowed — AttributeError (proto shape change), RuntimeError
+		# (connection hiccup), iterm2 RPC errors. Genuinely non-fatal: we
+		# already have the UUID. Surface under ITA_DEBUG.
 		name = ''
 		try:
 			app = await iterm2.async_get_app(connection)
 			s = app.get_session_by_id(uuid)
 			if s is not None:
 				name = strip(s.name or '')
-		except Exception:
-			pass
+		except (AttributeError, RuntimeError, ConnectionError) as exc:
+			_debug_warn('on_session_new: name lookup failed', exc)
 		return (uuid, name)
 	uuid, name = run_iterm(_run)
 	if use_json:
@@ -222,8 +238,10 @@ def on_session_end(timeout, session_id, use_json):
 				for t in w.tabs:
 					for s in t.sessions:
 						name_map[s.session_id] = strip(s.name or '')
-		except Exception:
-			pass
+		except (AttributeError, RuntimeError, ConnectionError) as exc:
+			# #316: partial snapshot is acceptable — terminate notifications
+			# still fire with the UUID; names are a nice-to-have.
+			_debug_warn('on_session_end: name snapshot failed', exc)
 		q = asyncio.Queue()
 		async def cb(connection, notification):
 			sid = notification.session_id
@@ -238,10 +256,12 @@ def on_session_end(timeout, session_id, use_json):
 		except asyncio.TimeoutError:
 			raise click.ClickException(f"Timed out waiting for session termination after {timeout}s")
 		finally:
+			# #316: unsubscribe runs after the primary result is in hand.
+			# Connection may already be closing; swallowing narrowly is OK.
 			try:
 				await iterm2.notifications.async_unsubscribe(connection, token)
-			except Exception:
-				pass
+			except (RuntimeError, ConnectionError, AttributeError) as exc:
+				_debug_warn('on_session_end: unsubscribe failed', exc)
 	sid, name = run_iterm(_run)
 	if use_json:
 		click.echo(json.dumps({'session_id': sid, 'name': name}, ensure_ascii=False))
@@ -285,10 +305,11 @@ def on_layout(timeout, use_json):
 		except asyncio.TimeoutError:
 			raise click.ClickException(f"Timed out waiting for layout change after {timeout}s")
 		finally:
+			# #316: cleanup-path unsubscribe; see on_session_end for rationale.
 			try:
 				await iterm2.notifications.async_unsubscribe(connection, token)
-			except Exception:
-				pass
+			except (RuntimeError, ConnectionError, AttributeError) as exc:
+				_debug_warn('on_layout: unsubscribe failed', exc)
 	result = run_iterm(_run)
 	if use_json:
 		click.echo(json.dumps({'event': result}, ensure_ascii=False))
