@@ -211,6 +211,98 @@ def assert_identity_required(cmd_path: str) -> None:
 # reset is belt-and-suspenders for future callers.
 
 
+# ── Rule-4 protection harness (#292) ───────────────────────────────────────
+# Lets the rule-4 matrix drive every mutator through its `check_protected`
+# call-path without a live iTerm2. We substitute three things in the
+# singleton ``iterm2`` module and the canonical ``ita._protect`` source:
+#
+#   1. ``iterm2.run_until_complete`` — run the coroutine synchronously via
+#      ``asyncio.run`` against a fake connection. Every ita module pulls
+#      ``run_iterm`` (and therefore ``iterm2.run_until_complete``) from the
+#      same module object, so a single patch propagates.
+#   2. ``iterm2.async_get_app`` — return a fake ``App`` whose
+#      ``get_session_by_id(GHOST_SID)`` returns a minimal fake session.
+#      ``resolve_session`` then happily resolves GHOST_SID without touching
+#      the network.
+#   3. ``ita._protect.get_protected`` — seeded to ``{GHOST_SID}`` so the
+#      real ``check_protected`` fires ``ItaError("protected", …)`` the
+#      instant the mutator reaches it.
+#
+# The helper is a context manager so each test cell applies it narrowly;
+# it avoids a pytest fixture so tests that want their own variation (e.g.
+# seed with a different SID) can still call it directly.
+
+import asyncio
+import contextlib
+
+
+def _build_fake_session(sid: str) -> SimpleNamespace:
+	"""Minimal iterm2.Session stand-in. Only attributes the mutator needs
+	*before* it reaches check_protected. Anything after is irrelevant —
+	the raise short-circuits execution."""
+	tab = SimpleNamespace(tab_id="fake-tab", window=SimpleNamespace(window_id="fake-win"))
+
+	async def _noop(*_a, **_kw):
+		return None
+
+	return SimpleNamespace(
+		session_id=sid,
+		name="fake-session",
+		tab=tab,
+		window=tab.window,
+		async_send_text=_noop,
+		async_inject=_noop,
+		async_get_variable=_noop,
+		async_set_name=_noop,
+	)
+
+
+class _FakeApp:
+	"""Minimal iterm2.App stand-in. resolve_session only needs
+	``get_session_by_id`` for the fast-path UUID match."""
+	terminal_windows: list = []
+
+	def __init__(self, session: SimpleNamespace) -> None:
+		self._session = session
+
+	@property
+	def windows(self):
+		return []
+
+	@property
+	def current_terminal_window(self):
+		return None
+
+	def get_session_by_id(self, sid: str):
+		if sid == self._session.session_id:
+			return self._session
+		return None
+
+
+@contextlib.contextmanager
+def seeded_protection(sid: str = GHOST_SID):
+	"""Patch the three seams needed to drive any mutator into the
+	``check_protected`` raise without a live iTerm2. Yields ``None``.
+
+	Fast-lane-safe: every patch is purely in-process."""
+	from unittest.mock import patch
+	import iterm2  # singleton
+
+	session = _build_fake_session(sid)
+	app = _FakeApp(session)
+
+	async def _fake_get_app(_connection):
+		return app
+
+	def _fake_run_until_complete(main):
+		asyncio.run(main(None))
+
+	with patch.object(iterm2, "run_until_complete", _fake_run_until_complete), \
+		patch.object(iterm2, "async_get_app", _fake_get_app), \
+		patch("ita._protect.get_protected", lambda: {sid}):
+		yield
+
+
 __all__ = [
 	"GHOST_SID",
 	"invoke",
@@ -223,4 +315,5 @@ __all__ = [
 	"assert_stdout_clean",
 	"assert_stderr_no_traceback",
 	"assert_identity_required",
+	"seeded_protection",
 ]
