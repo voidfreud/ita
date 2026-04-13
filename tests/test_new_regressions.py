@@ -1,0 +1,220 @@
+"""Regression tests — one per open issue. All marked known_broken; they fail today by design."""
+import json
+import os
+import subprocess
+import sys
+import time
+import pytest
+
+sys.path.insert(0, str(__import__('pathlib').Path(__file__).parent))
+from conftest import ita, ita_ok, _extract_sid
+
+pytestmark = [pytest.mark.regression]
+
+
+# ── #282 write-lock PPID ──────────────────────────────────────────────────────
+
+@pytest.mark.known_broken
+def test_issue_282_write_lock_ppid_collision(session):
+	"""#282: Two subprocesses sharing same PPID can acquire same session lock.
+	Expected fix: lock key must include PID, not just PPID."""
+	# Acquire lock from current process
+	r1 = ita('lock', '-s', session)
+	assert r1.returncode == 0, f"First lock failed: {r1.stderr}"
+	try:
+		# Second attempt from a child subprocess — same PPID as us
+		r2 = subprocess.run(
+			['python3', '-c',
+			 f"import subprocess, sys; "
+			 f"r = subprocess.run(['uv','run',sys.argv[1],'lock','-s','{session}'], "
+			 f"capture_output=True, text=True); sys.exit(r.returncode)"],
+			capture_output=True, text=True, timeout=15,
+			env={**os.environ, 'ITA_PPID_TEST': '1'},
+		)
+		# Expected: second acquire blocks or returns non-zero
+		assert r2.returncode != 0, (
+			"#282: second subprocess acquired write-lock on already-locked session"
+		)
+	finally:
+		ita('unlock', '-y', '-s', session)
+
+
+# ── #283 bulk clear bypasses check_protected ─────────────────────────────────
+
+@pytest.mark.known_broken
+def test_issue_283_clear_all_ignores_protected(session):
+	"""#283: `ita clear --all` bypasses check_protected, wiping protected sessions.
+	Expected fix: clear --all must honour protection flag."""
+	ita_ok('protect', '-s', session)
+	try:
+		ita('send', '-s', session, 'echo regression283')
+		time.sleep(0.3)
+		ita('clear', '--all')
+		out = ita_ok('read', '-s', session)
+		assert 'regression283' in out, (
+			"#283: protected session was cleared by --all"
+		)
+	finally:
+		ita('unprotect', '-s', session)
+
+
+# ── #284 tab detach object mixup ─────────────────────────────────────────────
+
+def test_issue_284_tab_detach_to_tab_id(session):
+	"""#284: `tab detach --to <tab-id>` passes wrong object type internally.
+	Expected fix: detach target resolves to Tab, not Session."""
+	# Create a second tab to detach to; capture the tab id
+	r_new = ita('tab', 'new')
+	assert r_new.returncode == 0, f"tab new failed: {r_new.stderr}"
+	tab_id = r_new.stdout.strip().split()[-1]
+	r = ita('tab', 'detach', '-s', session, '--to', tab_id)
+	# Today this may crash with AttributeError; assert no unhandled exception
+	assert 'AttributeError' not in r.stderr, (
+		f"#284: tab detach raised AttributeError — object type mixup\n{r.stderr}"
+	)
+	assert 'Traceback' not in r.stderr, (
+		f"#284: tab detach raised an unhandled exception\n{r.stderr}"
+	)
+
+
+# ── #285 broadcast send duplicate ────────────────────────────────────────────
+
+@pytest.mark.known_broken
+def test_issue_285_broadcast_duplicate_delivery(session):
+	"""#285: Session belonging to 2 broadcast domains receives each send twice.
+	Expected fix: deduplicate recipients before dispatch."""
+	ita_ok('broadcast', 'add', '-s', session, '-d', 'domain-a')
+	ita_ok('broadcast', 'add', '-s', session, '-d', 'domain-b')
+	try:
+		marker = 'REGRESSION285MARKER'
+		ita_ok('broadcast', 'send', '--all', marker)
+		time.sleep(0.4)
+		out = ita_ok('read', '-s', session)
+		occurrences = out.count(marker)
+		assert occurrences == 1, (
+			f"#285: marker appeared {occurrences} times — broadcast deduplication broken"
+		)
+	finally:
+		ita('broadcast', 'remove', '-s', session, '-d', 'domain-a')
+		ita('broadcast', 'remove', '-s', session, '-d', 'domain-b')
+
+
+# ── #286 layouts save --window silent no-op ──────────────────────────────────
+
+@pytest.mark.known_broken
+def test_issue_286_layouts_save_window_no_current_window():
+	"""#286: `ita layouts save --window` with no current window exits 0 and prints "Saved:".
+	Expected fix: must exit non-zero when no window context exists."""
+	r = ita('layouts', 'save', '--window', '--name', 'reg286-layout',
+	        '--no-current-window')
+	assert r.returncode != 0, (
+		f"#286: layouts save --window exited 0 with no current window\n"
+		f"stdout: {r.stdout}\nstderr: {r.stderr}"
+	)
+
+
+# ── #287 var list silent degrade ─────────────────────────────────────────────
+
+@pytest.mark.known_broken
+def test_issue_287_var_list_unresolvable_session():
+	"""#287: `ita var list` with unresolvable session scope silently exits 0.
+	Expected fix: must exit non-zero when scope cannot be resolved."""
+	r = ita('var', 'list', '--session', 'nonexistent-session-id-reg287')
+	assert r.returncode != 0, (
+		f"#287: var list with bad session exited 0\nstdout: {r.stdout}"
+	)
+
+
+# ── #288 prompt-detection heuristic ──────────────────────────────────────────
+
+@pytest.mark.known_broken
+def test_issue_288_prompt_detection_mode_field(session):
+	"""#288: get-prompt --json omits 'mode' field for non-standard prompts.
+	Expected fix: mode field always present, value 'heuristic' or 'exact'."""
+	ita('send', '-s', session, 'PS1="CUSTOM> "')
+	time.sleep(0.3)
+	r = ita('get-prompt', '-s', session, '--json')
+	assert r.returncode == 0, f"get-prompt failed: {r.stderr}"
+	try:
+		data = json.loads(r.stdout)
+	except json.JSONDecodeError:
+		pytest.fail(f"#288: get-prompt --json returned non-JSON: {r.stdout!r}")
+	assert 'mode' in data, (
+		f"#288: 'mode' field missing from get-prompt JSON output: {data}"
+	)
+
+
+# ── #290 timeout rc inconsistency ────────────────────────────────────────────
+
+def test_issue_290_run_json_timeout_rc(session):
+	"""#290: `ita run --json` with timeout returns rc=1 instead of rc=124.
+	Expected fix: timed-out processes must report rc=124 to match POSIX timeout."""
+	r = ita('run', '-s', session, '--json', '--timeout', '1', 'sleep 10',
+	        timeout=10)
+	assert r.returncode == 0, f"run --json wrapper failed: {r.stderr}"
+	try:
+		data = json.loads(r.stdout)
+	except json.JSONDecodeError:
+		pytest.fail(f"#290: run --json returned non-JSON: {r.stdout!r}")
+	proc_rc = data.get('rc') or data.get('returncode') or data.get('exit_code')
+	assert proc_rc == 124, (
+		f"#290: expected rc=124 for timed-out process, got {proc_rc!r}"
+	)
+
+
+# ── #247 on prompt silent timeout ────────────────────────────────────────────
+
+@pytest.mark.known_broken
+def test_issue_247_on_prompt_timeout_rc(session):
+	"""#247: `ita on prompt -t 1` with no prompt event exits 0 silently.
+	Expected fix: must exit non-zero (e.g. 124) on timeout."""
+	r = ita('on', 'prompt', '-s', session, '-t', '1', timeout=5)
+	assert r.returncode != 0, (
+		f"#247: on prompt -t 1 with no event exited 0\nstdout: {r.stdout}"
+	)
+
+
+# ── #248 run -n warning in stdout ────────────────────────────────────────────
+
+def test_issue_248_run_n_warning_on_stderr(session):
+	"""#248: run -n fallback warning bleeds into stdout, corrupting line count.
+	Expected fix: warning goes to stderr; stdout has exactly N lines."""
+	n = 3
+	cmd = 'printf "line1\\nline2\\nline3\\n"'
+	r = ita('run', '-s', session, '-n', str(n), cmd, timeout=15)
+	assert r.returncode == 0, f"run -n failed: {r.stderr}"
+	stdout_lines = [l for l in r.stdout.splitlines() if l]
+	assert len(stdout_lines) == n, (
+		f"#248: expected {n} stdout lines, got {len(stdout_lines)}; "
+		f"warning may be in stdout\nstdout: {r.stdout!r}\nstderr: {r.stderr!r}"
+	)
+	if 'warning' in r.stdout.lower() or 'fallback' in r.stdout.lower():
+		pytest.fail(f"#248: warning text found in stdout\nstdout: {r.stdout!r}")
+
+
+# ── #250 new-not-ready jobName ────────────────────────────────────────────────
+
+@pytest.mark.known_broken
+def test_issue_250_new_session_var_get_job_name():
+	"""#250: `ita var get jobName` immediately after new session returns empty ~20% of the time.
+	Expected fix: new waits until session variables are populated before returning."""
+	failures = 0
+	sids = []
+	samples = 20
+	try:
+		for _ in range(samples):
+			r = ita('new', '--name', 'ita-test-reg250')
+			if r.returncode != 0:
+				failures += 1
+				continue
+			sid = _extract_sid(r.stdout)
+			sids.append(sid)
+			rv = ita('var', 'get', '-s', sid, 'jobName')
+			if rv.returncode != 0 or not rv.stdout.strip():
+				failures += 1
+	finally:
+		for sid in sids:
+			ita('close', '-s', sid, timeout=10)
+	assert failures == 0, (
+		f"#250: jobName empty or missing in {failures}/{samples} samples immediately after new"
+	)
