@@ -15,7 +15,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).parent))
 from conftest import ita, _all_session_ids
 
-ITA = Path(__file__).parent.parent / 'src' / 'ita.py'
+ITA = ['python', '-m', 'ita']
 
 pytestmark = [pytest.mark.adversarial, pytest.mark.integration]
 
@@ -25,7 +25,7 @@ pytestmark = [pytest.mark.adversarial, pytest.mark.integration]
 def _popen(*args):
 	"""Start ita subcommand via Popen. Returns Popen object."""
 	return subprocess.Popen(
-		['uv', 'run', str(ITA)] + list(args),
+		['uv', 'run', *ITA] + list(args),
 		stdout=subprocess.PIPE,
 		stderr=subprocess.PIPE,
 		text=True,

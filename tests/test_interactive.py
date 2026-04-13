@@ -336,9 +336,9 @@ class TestRepl:
 	def test_eof_exits_cleanly(self):
 		"""Edge: EOF on stdin causes repl to exit with rc=0 (no crash)."""
 		import subprocess
-		ITA = Path(__file__).parent.parent / 'src' / 'ita.py'
+		ITA = ['python', '-m', 'ita']
 		r = subprocess.run(
-			['uv', 'run', str(ITA), 'repl'],
+			['uv', 'run', *ITA, 'repl'],
 			input='',
 			capture_output=True, text=True, timeout=15,
 		)
@@ -350,9 +350,9 @@ class TestRepl:
 	def test_exit_command_quits(self):
 		"""Edge: typing 'exit' causes the repl to quit."""
 		import subprocess
-		ITA = Path(__file__).parent.parent / 'src' / 'ita.py'
+		ITA = ['python', '-m', 'ita']
 		r = subprocess.run(
-			['uv', 'run', str(ITA), 'repl'],
+			['uv', 'run', *ITA, 'repl'],
 			input='exit\n',
 			capture_output=True, text=True, timeout=15,
 		)
@@ -363,9 +363,9 @@ class TestRepl:
 	def test_blank_lines_ignored(self):
 		"""Edge: blank input lines don't crash."""
 		import subprocess
-		ITA = Path(__file__).parent.parent / 'src' / 'ita.py'
+		ITA = ['python', '-m', 'ita']
 		r = subprocess.run(
-			['uv', 'run', str(ITA), 'repl'],
+			['uv', 'run', *ITA, 'repl'],
 			input='\n\n\nexit\n',
 			capture_output=True, text=True, timeout=15,
 		)
@@ -375,9 +375,9 @@ class TestRepl:
 	def test_unknown_command_nonzero_inner(self):
 		"""Error: unknown sub-command inside repl prints error but repl itself exits 0."""
 		import subprocess
-		ITA = Path(__file__).parent.parent / 'src' / 'ita.py'
+		ITA = ['python', '-m', 'ita']
 		r = subprocess.run(
-			['uv', 'run', str(ITA), 'repl'],
+			['uv', 'run', *ITA, 'repl'],
 			input='totally-nonexistent-subcommand\nexit\n',
 			capture_output=True, text=True, timeout=15,
 		)

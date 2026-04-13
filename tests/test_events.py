@@ -8,13 +8,13 @@ import pytest
 sys.path.insert(0, str(Path(__file__).parent))
 from conftest import ita, ita_ok
 
-ITA = Path(__file__).parent.parent / 'src' / 'ita.py'
+ITA = ['python', '-m', 'ita']
 pytestmark = pytest.mark.integration
 
 
 def _popen(*args, **kwargs):
 	return subprocess.Popen(
-		['uv', 'run', str(ITA)] + list(args),
+		['uv', 'run', *ITA] + list(args),
 		stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, **kwargs
 	)
 

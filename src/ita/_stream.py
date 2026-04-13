@@ -4,8 +4,8 @@ import asyncio
 import json
 import click
 import iterm2
-from _core import cli, run_iterm, resolve_session, strip, last_non_empty_index, _is_prompt_line
-from _output import _clean_lines
+from ._core import cli, run_iterm, resolve_session, strip, last_non_empty_index, _is_prompt_line
+from ._output import _clean_lines
 
 
 def _ts() -> int:

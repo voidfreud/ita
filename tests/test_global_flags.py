@@ -13,7 +13,7 @@ from click.testing import CliRunner
 SRC = Path(__file__).parent.parent / 'src'
 sys.path.insert(0, str(SRC))
 
-import _core  # noqa: E402
+from ita import _core  # noqa: E402
 
 cli = _core.cli
 
@@ -40,8 +40,8 @@ def test_dry_run_does_not_mutate(cmd):
 		called['n'] += 1
 	with patch.object(_core, 'run_iterm', _spy):
 		# Also patch the run_iterm re-exports in modules.
-		import _config
-		import _layout
+		from ita import _config
+		from ita import _layout
 		with patch.object(_config, 'run_iterm', _spy), patch.object(_layout, 'run_iterm', _spy):
 			result = runner.invoke(cli, cmd)
 	assert result.exit_code == 0, result.output
@@ -51,7 +51,7 @@ def test_dry_run_does_not_mutate(cmd):
 
 def test_confirm_non_tty_errors_without_yes():
 	runner = CliRunner()
-	import _config
+	from ita import _config
 	with patch.object(_core, 'run_iterm', _stub()), \
 			patch.object(_config, 'run_iterm', _stub()):
 		result = runner.invoke(cli, ["broadcast", "off", "--confirm"], input="")
@@ -61,7 +61,7 @@ def test_confirm_non_tty_errors_without_yes():
 
 def test_confirm_yes_proceeds():
 	runner = CliRunner()
-	import _config
+	from ita import _config
 	with patch.object(_core, 'run_iterm', _stub()), \
 			patch.object(_config, 'run_iterm', _stub()):
 		result = runner.invoke(cli, ["broadcast", "off", "--confirm", "-y"])
@@ -76,7 +76,7 @@ def test_confirm_yes_proceeds():
 ])
 def test_quiet_suppresses_stderr_success(cmd):
 	runner = CliRunner()
-	import _config
+	from ita import _config
 	with patch.object(_core, 'run_iterm', _stub()), \
 			patch.object(_config, 'run_iterm', _stub()):
 		result = runner.invoke(cli, cmd)
@@ -90,7 +90,7 @@ def test_quiet_suppresses_stderr_success(cmd):
 
 def test_var_get_json():
 	runner = CliRunner()
-	import _config
+	from ita import _config
 	with patch.object(_core, 'run_iterm', _stub('hello')), \
 			patch.object(_config, 'run_iterm', _stub('hello')):
 		result = runner.invoke(cli, ["var", "get", "foo", "--json"])
@@ -101,7 +101,7 @@ def test_var_get_json():
 
 def test_pref_list_json():
 	runner = CliRunner()
-	import _config
+	from ita import _config
 	with patch.object(_core, 'run_iterm', _stub(['A', 'B'])), \
 			patch.object(_config, 'run_iterm', _stub(['A', 'B'])):
 		result = runner.invoke(cli, ["pref", "list", "--json"])
@@ -111,7 +111,7 @@ def test_pref_list_json():
 
 def test_var_set_json_emits_ok():
 	runner = CliRunner()
-	import _config
+	from ita import _config
 	with patch.object(_core, 'run_iterm', _stub()), \
 			patch.object(_config, 'run_iterm', _stub()):
 		result = runner.invoke(cli, ["var", "set", "foo", "bar", "--json", "-y"])

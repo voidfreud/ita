@@ -1,31 +1,30 @@
 #!/usr/bin/env bash
-# install.sh — symlink ita into ~/.local/bin
-# Run once after installing the plugin, or after cloning the repo directly.
+# install.sh — install ita as a uv-managed tool.
+#
+# ita is a proper Python package (src/ita/). `uv tool install` builds a
+# wheel and drops an `ita` launcher into uv's bin dir (~/.local/bin).
+# Re-run this script after pulling new code to refresh the installed copy.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-BIN_DIR="${HOME}/.local/bin"
-TARGET="${BIN_DIR}/ita"
-SOURCE="${SCRIPT_DIR}/src/ita.py"
 
-mkdir -p "${BIN_DIR}"
-
-if [ ! -f "${SOURCE}" ]; then
-  echo "error: ${SOURCE} not found" >&2
+if ! command -v uv >/dev/null 2>&1; then
+  echo "error: uv not found. Install from https://github.com/astral-sh/uv" >&2
   exit 1
 fi
 
-chmod +x "${SOURCE}"
+echo "Installing ita from ${SCRIPT_DIR}..."
+uv tool install --force --from "${SCRIPT_DIR}" ita
 
-if [ -L "${TARGET}" ] || [ -f "${TARGET}" ]; then
-  echo "removing existing ${TARGET}"
-  rm "${TARGET}"
-fi
+UV_BIN="${HOME}/.local/bin"
+case ":${PATH:-}:" in
+  *":${UV_BIN}:"*) ;;
+  *)
+    echo ""
+    echo "Add ${UV_BIN} to your PATH (e.g. in ~/.zshrc):"
+    echo "  export PATH=\"${UV_BIN}:\$PATH\""
+    ;;
+esac
 
-ln -s "${SOURCE}" "${TARGET}"
-echo "installed: ${TARGET} → ${SOURCE}"
 echo ""
-echo "Make sure ${BIN_DIR} is in your PATH. If not, add this to ~/.zshrc:"
-echo "  export PATH=\"${BIN_DIR}:\$PATH\""
-echo ""
-echo "Then verify: ita --help"
+echo "Verify: ita --version"

@@ -3,7 +3,7 @@
 import asyncio
 import click
 import iterm2
-from _core import cli, run_iterm, resolve_session
+from ._core import cli, run_iterm, resolve_session
 
 
 class TmuxGroup(click.Group):

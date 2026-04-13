@@ -308,12 +308,12 @@ def test_trust_20_sibling_writers_same_parent(session):
 	"""
 	# Launch two concurrent lock attempts from this (same) parent process.
 	p1 = subprocess.Popen(
-		['uv', 'run', str(Path(__file__).parent.parent / 'src' / 'ita.py'),
+		['uv', 'run', 'python', '-m', 'ita',
 		 'lock', '-s', session],
 		stdout=subprocess.PIPE, stderr=subprocess.PIPE,
 	)
 	p2 = subprocess.Popen(
-		['uv', 'run', str(Path(__file__).parent.parent / 'src' / 'ita.py'),
+		['uv', 'run', 'python', '-m', 'ita',
 		 'lock', '-s', session],
 		stdout=subprocess.PIPE, stderr=subprocess.PIPE,
 	)

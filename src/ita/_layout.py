@@ -3,7 +3,7 @@
 import json
 import click
 import iterm2
-from _core import cli, run_iterm, confirm_or_skip
+from ._core import cli, run_iterm, confirm_or_skip
 
 
 # ── Windows ────────────────────────────────────────────────────────────────

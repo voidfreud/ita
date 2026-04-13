@@ -5,7 +5,7 @@ import json
 import re
 import click
 import iterm2
-from _core import cli, run_iterm, resolve_session, strip, PROMPT_CHARS, last_non_empty_index
+from ._core import cli, run_iterm, resolve_session, strip, PROMPT_CHARS, last_non_empty_index
 
 
 @cli.group()

@@ -174,7 +174,7 @@ wheels = [
 [[package]]
 name = "ita"
 version = "0.7.0"
-source = { virtual = "." }
+source = { editable = "." }
 dependencies = [
     { name = "click" },
     { name = "iterm2" },

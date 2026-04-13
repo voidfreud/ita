@@ -241,7 +241,7 @@ def test_disconnect_during_event_wait(session):
 	import signal
 
 	proc = subprocess.Popen(
-		['uv', 'run', str(Path(__file__).parent.parent / 'src' / 'ita.py'),
+		['uv', 'run', 'python', '-m', 'ita',
 		 'on', 'session-end', '-t', '30', '-s', session],
 		stdout=subprocess.PIPE,
 		stderr=subprocess.PIPE,

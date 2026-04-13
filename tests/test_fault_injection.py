@@ -16,8 +16,8 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).parent.parent / 'src'))
 
-import _core
-from _core import (
+from ita import _core
+from ita._core import (
 	acquire_writelock,
 	release_writelock,
 	_load_writelocks,
@@ -67,7 +67,7 @@ def test_missing_iterm2_connection(monkeypatch):
 
 def test_missing_shell_integration_returns_null_exit_code(monkeypatch, tmp_path):
 	"""When shell integration absent, JSON envelope must have exit_code: null."""
-	import _send
+	from ita import _send
 
 	async def _no_integration(session):
 		return False

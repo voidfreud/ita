@@ -8,7 +8,7 @@ removed — see issue #138.
 """
 import click
 import iterm2
-from _core import cli, run_iterm
+from ._core import cli, run_iterm
 
 
 # ── Arrangements ──────────────────────────────────────────────────────────

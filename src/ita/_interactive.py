@@ -3,7 +3,7 @@
 import functools
 import click
 import iterm2
-from _core import cli, run_iterm
+from ._core import cli, run_iterm
 
 
 @cli.command()

@@ -4,7 +4,7 @@ from pathlib import Path
 import shlex
 import click
 import iterm2
-from _core import (cli, run_iterm, resolve_session, strip, read_session_lines,
+from ._core import (cli, run_iterm, resolve_session, strip, read_session_lines,
 	check_protected, _all_sessions, parse_filter, match_filter,
 	session_writelock, _SENTINEL_RE)
 
@@ -80,7 +80,7 @@ def new(new_window, profile, session_name, reuse, replace, cwd, run_cmd, as_json
 	jobName_populated, writable."""
 	if reuse and replace:
 		raise click.ClickException("--reuse and --replace are mutually exclusive.")
-	from _readiness import _probe, _parse_require, _POLL_INTERVAL
+	from ._readiness import _probe, _parse_require, _POLL_INTERVAL
 	required_flags = set() if no_wait else _parse_require(wait_reqs)
 	async def _run(connection):
 		app = await iterm2.async_get_app(connection)
@@ -235,7 +235,7 @@ def close(session_id, filter_expr, all_flag, quiet, dry_run, force):
 	if filter_expr:
 		key, op, value = parse_filter(filter_expr)
 
-	from _core import get_protected
+	from ._core import get_protected
 	results = {'closed': [], 'skipped': []}
 	async def _run_bulk(connection):
 		pairs = await _session_records(connection)

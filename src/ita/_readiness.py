@@ -17,7 +17,7 @@ import json
 import time
 import click
 import iterm2
-from _core import cli, run_iterm, resolve_session, _load_writelocks, _pid_alive
+from ._core import cli, run_iterm, resolve_session, _load_writelocks, _pid_alive
 
 
 _POLL_INTERVAL = 0.05  # 50 ms

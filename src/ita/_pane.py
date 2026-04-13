@@ -2,7 +2,7 @@
 """Pane commands: split, navigate, move, swap."""
 import click
 import iterm2
-from _core import cli, run_iterm, resolve_session
+from ._core import cli, run_iterm, resolve_session
 
 DIRECTION_MAP = {
 	'right': iterm2.NavigationDirection.RIGHT,

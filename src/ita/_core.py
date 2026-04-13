@@ -28,15 +28,15 @@ import iterm2
 
 # Re-exports — back-compat shims for existing callers. Phase 3 branches will
 # migrate their own modules to import from the canonical source.
-from _protect import (  # noqa: F401
+from ._protect import (  # noqa: F401
 	PROTECTED_FILE, get_protected, add_protected, remove_protected, check_protected,
 )
-from _screen import (  # noqa: F401
+from ._screen import (  # noqa: F401
 	PROMPT_CHARS, _SENTINEL_RE, _is_prompt_line, strip, last_non_empty_index,
 	read_session_lines,
 )
-from _filter import parse_filter, match_filter  # noqa: F401
-from _envelope import (  # noqa: F401
+from ._filter import parse_filter, match_filter  # noqa: F401
+from ._envelope import (  # noqa: F401
 	SCHEMA_VERSION, EXIT_CODES,
 	EXIT_OK, EXIT_NOT_FOUND, EXIT_PROTECTED, EXIT_TIMEOUT, EXIT_LOCKED,
 	EXIT_BAD_ARGS, EXIT_API_UNREACHABLE, EXIT_NO_SHELL_INTEGRATION,

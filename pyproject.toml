@@ -4,9 +4,6 @@ version = "0.7.0"
 requires-python = ">=3.11"
 dependencies = ["click", "iterm2"]
 
-# Note: bare _* sibling imports in ita.py require sys.path manipulation;
-# installed entry point works only when src/ is the package root (e.g. via pythonpath).
-# Use `uv run --script src/ita.py` for the inline-script mode.
 [project.scripts]
 ita = "ita:cli"
 
@@ -23,10 +20,17 @@ dev = [
 	"mutmut",
 ]
 
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/ita"]
+
 [tool.pytest.ini_options]
 pythonpath = ["src", "tests"]
-# Run with: uv run --with pytest --with hypothesis --with click --with iterm2 pytest tests/
-# See docs/TESTING.md for marker semantics and CI lanes.
+# `pythonpath = src` lets tests import `ita` without an editable install.
+# Markers and CI lanes: see docs/TESTING.md.
 markers = [
 	"integration: live iTerm2 required; auto-skip if API unreachable",
 	"stress: slow cross-session / load tests; weekly or on-demand",
@@ -44,5 +48,5 @@ markers = [
 ]
 
 [tool.mutmut]
-paths_to_mutate = "src/"
+paths_to_mutate = "src/ita/"
 runner = "uv run pytest -m 'not integration and not stress and not perf and not fault_injection' -x --timeout=30"

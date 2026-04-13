@@ -18,13 +18,13 @@ from conftest import ita, ita_ok
 
 pytestmark = [pytest.mark.integration, pytest.mark.perf]
 
-ITA = Path(__file__).parent.parent / 'src' / 'ita.py'
+ITA = ['python', '-m', 'ita']
 
 
 def _run(*args):
 	"""Minimal subprocess call for benchmarking — no assertion, returns CompletedProcess."""
 	return subprocess.run(
-		['uv', 'run', str(ITA)] + list(args),
+		['uv', 'run', *ITA] + list(args),
 		capture_output=True, text=True, timeout=30,
 	)
 
