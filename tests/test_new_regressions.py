@@ -115,7 +115,6 @@ def test_issue_286_layouts_save_window_no_current_window():
 
 # ── #287 var list silent degrade ─────────────────────────────────────────────
 
-@pytest.mark.known_broken
 def test_issue_287_var_list_unresolvable_session():
 	"""#287: `ita var list` with unresolvable session scope silently exits 0.
 	Expected fix: must exit non-zero when scope cannot be resolved."""
