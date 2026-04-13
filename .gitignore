@@ -9,3 +9,4 @@ ita-main/
 ita-main.zip
 .pytest_cache/
 .claude/
+*.egg-info/
