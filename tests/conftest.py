@@ -1,7 +1,7 @@
 """Shared fixtures, helpers, and markers for the ita test suite."""
 import pytest
 
-from helpers import (
+from helpers import (  # noqa: F401
 	ITA, ita, ita_ok, _extract_sid, _all_session_ids,
 	_open_test_sessions, _close_test_sessions,
 	TEST_SESSION_PREFIX,
@@ -78,6 +78,7 @@ def pytest_configure(config):
 	config.addinivalue_line('markers', 'adversarial: concurrent / race-condition tests')
 	config.addinivalue_line('markers', 'perf: latency benchmark tests')
 	config.addinivalue_line('markers', 'shell_matrix: cross-shell compatibility tests (bash/zsh/fish)')
+	config.addinivalue_line('markers', 'broadcast: broadcast-domain tests')
 	config.addinivalue_line('markers', 'xfail_flaky: async race — filed as bug, not fixed here')
 
 
