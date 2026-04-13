@@ -3,7 +3,9 @@
 import json
 import click
 import iterm2
-from ._core import cli, run_iterm, resolve_session, confirm_or_skip, success_echo
+from ._core import cli, run_iterm, resolve_session, confirm_or_skip, success_echo, check_protected, session_writelock
+from ._envelope import ItaError
+from ._lock import resolve_force_flags
 
 
 # ── Variables ─────────────────────────────────────────────────────────────
@@ -458,14 +460,23 @@ def broadcast_on(session_id, window_id, replace, quiet, dry_run, confirm, yes):
 @click.option('--on-dead', type=click.Choice(['fail', 'skip', 'prune']),
 			  default='skip',
 			  help='Behaviour when a session is unreachable: fail/skip/prune (#285).')
-def broadcast_send(text, newline, use_json, on_dead):
+@click.option('--force-protected', is_flag=True,
+			  help='Send to protected members too (#294). Off by default: protected sessions are skipped with a warning.')
+@click.option('--force-lock', is_flag=True,
+			  help='Override per-member write-lock guard (#294).')
+@click.option('--force', is_flag=True, hidden=True,
+			  help='DEPRECATED: use --force-protected and/or --force-lock (#294).')
+def broadcast_send(text, newline, use_json, on_dead, force_protected, force_lock, force):
 	"""Send TEXT to every session in every active broadcast domain (#147).
 
 	iTerm2's broadcast-domain feature mirrors *keyboard* input, not API writes,
 	so `ita send` bypasses the domain. This command fills that gap by iterating
 	the current domains and calling async_send_text on each member.
 
-	Sessions shared by multiple domains are sent to only once (#285)."""
+	Sessions shared by multiple domains are sent to only once (#285).
+	Every target is gated by CONTRACT §10 protect/lock checks per-member
+	(#279 / §13)."""
+	fp, fl = resolve_force_flags(force, force_protected, force_lock)
 	payload = text + ('\n' if newline else '')
 	async def _run(connection):
 		app = await iterm2.async_get_app(connection)
@@ -487,9 +498,32 @@ def broadcast_send(text, newline, use_json, on_dead):
 		results = []
 		dead_ids: set = set()
 		for s in unique_sessions:
+			# #258, #279, §13 per-target gate. Protect/lock checks run BEFORE
+			# each send so a protected member in the fleet doesn't leak input
+			# under the orchestrator's ownership. Protected/locked members
+			# are reported in `results` with ok=False and a structured code.
 			try:
-				await s.async_send_text(payload)
+				check_protected(s.session_id, force_protected=fp)
+			except ItaError as exc:
+				results.append({'session_id': s.session_id, 'ok': False,
+							   'error': exc.reason, 'code': exc.code})
+				import sys as _sys
+				print(f"Warning: skipping protected session {s.session_id}: {exc.reason}",
+					  file=_sys.stderr)
+				continue
+			try:
+				with session_writelock(s.session_id, force_lock=fl):
+					await s.async_send_text(payload)
 				results.append({'session_id': s.session_id, 'ok': True, 'error': None})
+				continue
+			except ItaError as exc:
+				# locked or similar structured refusal — record, move on.
+				results.append({'session_id': s.session_id, 'ok': False,
+							   'error': exc.reason, 'code': exc.code})
+				import sys as _sys
+				print(f"Warning: skipping locked session {s.session_id}: {exc.reason}",
+					  file=_sys.stderr)
+				continue
 			except Exception as exc:
 				err = str(exc)
 				if on_dead == 'fail':

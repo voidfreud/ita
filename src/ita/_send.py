@@ -11,6 +11,20 @@ import iterm2
 from ._core import (cli, run_iterm, resolve_session, strip, PROMPT_CHARS,
 	last_non_empty_index, check_protected, session_writelock, _is_prompt_line)
 from ._envelope import ita_command, ItaError
+from ._lock import resolve_force_flags
+
+
+def _force_options(f):
+	"""Decorator stacking --force-protected / --force-lock / --force (deprecated).
+
+	Commands resolve the triple via `resolve_force_flags()` at call time."""
+	f = click.option('--force', is_flag=True, hidden=True,
+		help='DEPRECATED: use --force-protected and/or --force-lock (#294).')(f)
+	f = click.option('--force-lock', is_flag=True,
+		help='Override write-lock guard; reclaim from another live ita process (#294).')(f)
+	f = click.option('--force-protected', is_flag=True,
+		help='Override protected-session guard (#294).')(f)
+	return f
 
 
 def _trim_output_lines(lines: list[str]) -> list[str]:
@@ -139,9 +153,10 @@ async def _has_shell_integration(session) -> bool:
 		help='Read multi-line script from file (or - for stdin), run as one unit via bash -s heredoc, '
 			 'capture exit code of last command. (#137)')
 @click.option('-s', '--session', 'session_id', default=None)
-@click.option('--force', is_flag=True, help='Override protected-session guard.')
+@_force_options
 @ita_command(op='run')
-def run(cmd, timeout, lines, tail_n, use_json, persist, check_integration, stdin_file, session_id, force):
+def run(cmd, timeout, lines, tail_n, use_json, persist, check_integration, stdin_file, session_id,
+		force_protected, force_lock, force):
 	"""Send command, wait for completion, return scoped output and exit code.
 	By default the command runs in a subshell so `exit`, `cd`, and env mutations
 	stay isolated. Pass `--persist` to run in the session's live shell (state
@@ -182,12 +197,13 @@ def run(cmd, timeout, lines, tail_n, use_json, persist, check_integration, stdin
 		raise click.UsageError('Missing argument CMD (or pass --stdin / --check-integration).')
 	if cmd is not None and not cmd.strip():
 		raise click.ClickException('run requires a non-empty command (or pass --check-integration)')
+	fp, fl = resolve_force_flags(force, force_protected, force_lock)
 	async def _run(connection):
 		session = await resolve_session(connection, session_id)
-		check_protected(session.session_id, force=force)
+		check_protected(session.session_id, force_protected=fp)
 		# Writelock held for the whole send+await-completion window so a
 		# second ita can't interleave input before this command finishes.
-		with session_writelock(session.session_id, force=force):
+		with session_writelock(session.session_id, force_lock=fl):
 			return await _run_inner(connection, session)
 
 	async def _run_inner(connection, session):
@@ -353,16 +369,17 @@ def run(cmd, timeout, lines, tail_n, use_json, persist, check_integration, stdin
 @click.option('--raw', is_flag=True, help='Do not append newline')
 @click.option('-n', '--no-newline', 'no_newline', is_flag=True, help='Do not append newline (alias for --raw)')
 @click.option('-s', '--session', 'session_id', default=None)
-@click.option('--force', is_flag=True, help='Override protected-session guard.')
-def send(text, raw, no_newline, session_id, force):
+@_force_options
+def send(text, raw, no_newline, session_id, force_protected, force_lock, force):
 	"""Send text to session. Appends newline unless --raw or -n.
 	Note: Broadcast domains are not honored by send; text is sent directly
 	to the target session only. Use 'ita broadcast add' to group sessions
 	for coordinated input, then use 'ita key' or 'ita run' for broadcast."""
+	fp, fl = resolve_force_flags(force, force_protected, force_lock)
 	async def _run(connection):
 		session = await resolve_session(connection, session_id)
-		check_protected(session.session_id, force=force)
-		with session_writelock(session.session_id, force=force):
+		check_protected(session.session_id, force_protected=fp)
+		with session_writelock(session.session_id, force_lock=fl):
 			await session.async_send_text(text if (raw or no_newline) else text + '\n')
 	run_iterm(_run)
 
@@ -371,16 +388,17 @@ def send(text, raw, no_newline, session_id, force):
 @click.argument('data')
 @click.option('--hex', 'is_hex', is_flag=True, help='Interpret DATA as hex bytes')
 @click.option('-s', '--session', 'session_id', default=None)
-@click.option('--force', is_flag=True, help='Override protected-session guard.')
-def inject(data, is_hex, session_id, force):
+@_force_options
+def inject(data, is_hex, session_id, force_protected, force_lock, force):
 	"""Inject raw bytes into the terminal emulator's output stream (display side).
 	For sending input to a running process (Ctrl+C, arrow keys, etc.) use 'ita key' instead."""
+	fp, fl = resolve_force_flags(force, force_protected, force_lock)
 	async def _run(connection):
 		session = await resolve_session(connection, session_id)
-		check_protected(session.session_id, force=force)
+		check_protected(session.session_id, force_protected=fp)
 		# acquire writelock before encoding so a concurrent write sees the lock
 		# immediately (encoding may raise — that's fine, __exit__ releases).
-		with session_writelock(session.session_id, force=force):
+		with session_writelock(session.session_id, force_lock=fl):
 			await _inject_impl(session, data, is_hex)
 
 	async def _inject_impl(session, data, is_hex):
@@ -482,8 +500,8 @@ def _parse_key(token: str) -> bytes:
 @cli.command()
 @click.argument('keys', nargs=-1, required=True)
 @click.option('-s', '--session', 'session_id', default=None)
-@click.option('--force', is_flag=True, help='Override protected-session guard.')
-def key(keys, session_id, force):
+@_force_options
+def key(keys, session_id, force_protected, force_lock, force):
 	"""Send keystrokes as user input. Use friendly names: ctrl+c, ctrl+d, esc, enter,
 	tab, space, backspace, up, down, left, right, home, end, pgup, pgdn, f1-f19.
 	Multiple keys are sent in order: 'ita key ctrl+c ctrl+c' sends Ctrl+C twice."""
@@ -491,10 +509,11 @@ def key(keys, session_id, force):
 		payload = b''.join(_parse_key(k) for k in keys)
 	except click.ClickException:
 		raise
+	fp, fl = resolve_force_flags(force, force_protected, force_lock)
 	async def _run(connection):
 		session = await resolve_session(connection, session_id)
-		check_protected(session.session_id, force=force)
-		with session_writelock(session.session_id, force=force):
+		check_protected(session.session_id, force_protected=fp)
+		with session_writelock(session.session_id, force_lock=fl):
 			# Decode bytes back to a str for async_send_text (it takes text, not raw bytes —
 			# iTerm2 internally encodes via the session's terminal encoding).
 			await session.async_send_text(payload.decode('latin-1'))

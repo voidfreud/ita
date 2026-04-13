@@ -212,6 +212,17 @@ def warn_force_deprecated() -> None:
 		  "and/or --force-lock (#294)", file=sys.stderr)
 
 
+def resolve_force_flags(force: bool, force_protected: bool, force_lock: bool) -> tuple[bool, bool]:
+	"""Collapse legacy `--force` + split flags into (force_protected, force_lock).
+
+	`--force` (deprecated) implies BOTH overrides and fires the deprecation
+	warning. Explicit split flags compose with `--force` (union of bypasses)."""
+	if force:
+		warn_force_deprecated()
+		return True, True
+	return force_protected, force_lock
+
+
 # ── CLI: lock / unlock ─────────────────────────────────────────────────────
 
 # Late imports from _core to avoid circular import: _lock is imported by

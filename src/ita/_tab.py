@@ -211,12 +211,20 @@ def tab_detach(tab_id, index):
 			app.current_terminal_window.current_tab if app.current_terminal_window else None)
 		if not t:
 			raise click.ClickException("Tab not found")
-		w, _ = app.get_window_and_tab_for_session(t.current_session) if t.current_session else (None, None)
+		# #284: explicit (window, tab) destructure — matches the iTerm2 API
+		# signature `get_window_and_tab_for_session` returns (Window, Tab).
+		# `_pane.py` uses `_, tab`; we want the window here to range-check
+		# the --to index. The prior `w, _` was correct by coincidence but
+		# unclear; this form documents intent and prevents regression.
+		window, _found_tab = (
+			app.get_window_and_tab_for_session(t.current_session)
+			if t.current_session else (None, None)
+		)
 		if index is not None:
-			if not w:
+			if not window:
 				raise click.ClickException("Cannot find window for tab")
-			if not (0 <= index < len(w.tabs)):
-				raise click.ClickException(f"Index {index} out of range [0, {len(w.tabs) - 1}]")
+			if not (0 <= index < len(window.tabs)):
+				raise click.ClickException(f"Index {index} out of range [0, {len(window.tabs) - 1}]")
 			await t.async_move_to_position(index)
 		else:
 			await t.async_move_to_window()
@@ -234,11 +242,15 @@ def tab_move(tab_id, index):
 			app.current_terminal_window.current_tab if app.current_terminal_window else None)
 		if not t:
 			raise click.ClickException("Tab not found")
-		w, _ = app.get_window_and_tab_for_session(t.current_session) if t.current_session else (None, None)
-		if not w:
+		# #284: explicit (window, tab) destructure.
+		window, _found_tab = (
+			app.get_window_and_tab_for_session(t.current_session)
+			if t.current_session else (None, None)
+		)
+		if not window:
 			raise click.ClickException("Cannot find window for tab")
-		if not (0 <= index < len(w.tabs)):
-			raise click.ClickException(f"Index {index} out of range [0, {len(w.tabs) - 1}]")
+		if not (0 <= index < len(window.tabs)):
+			raise click.ClickException(f"Index {index} out of range [0, {len(window.tabs) - 1}]")
 		await t.async_move_to_position(index)
 	run_iterm(_run)
 

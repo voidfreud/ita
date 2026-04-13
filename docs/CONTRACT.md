@@ -210,7 +210,21 @@ Invariants enforced on every write path, including bulk paths (`broadcast`, `clo
 
 Bulk operations are **set-merge, not replace** (#258, #285, #220). A session belonging to multiple broadcast domains receives each message exactly once.
 
-Issues codified: #283, #258, #294, #321, #282 (closed), #220, #285.
+**`--force-protected` vs `--force-lock` (resolves #294):**
+
+The legacy `--force` flag is deprecated and emits a one-line deprecation warning to stderr the first time it is used in a process. It is kept as an alias that sets BOTH new flags simultaneously.
+
+| Flag | Bypasses | Does NOT bypass |
+| --- | --- | --- |
+| `--force-protected` | protection check (`~/.ita_protected` membership) | write-lock |
+| `--force-lock` | write-lock held by another live process | protection check |
+| `--force` (deprecated) | both, with warning | — |
+
+The two flags are **orthogonal**: passing only `--force-protected` against a session held by another ita invocation still fails with `rc=5 locked`; passing only `--force-lock` against a protected session still fails with `rc=3 protected`. Neither flag implies the other.
+
+**Bulk ops are gated per-target.** `session close --all`, `session clear --where`, and `broadcast send` each iterate members and run `check_protected` + `session_writelock` for every target. A protected member in a fleet is skipped and reported in the per-member result array (never silently included). A locked member surfaces `rc=5` for that member and the bulk envelope reports it via `warnings[]` / the per-member record; the orchestrator's own lock is not a substitute for per-member locking (#283, #258).
+
+Issues codified: #283, #258, #294, #321, #282 (closed), #220, #285, #279, #284.
 
 ---
 

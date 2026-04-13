@@ -8,7 +8,7 @@ See docs/CONTRACT.md §10.
 """
 from pathlib import Path
 
-import click
+from ._envelope import ItaError
 
 PROTECTED_FILE = Path.home() / ".ita_protected"
 
@@ -37,17 +37,21 @@ def remove_protected(session_id: str) -> None:
 		PROTECTED_FILE.unlink(missing_ok=True)
 
 
-def check_protected(session_id: str, force: bool = False) -> None:
-	"""Raise ClickException if session_id is protected and force is False.
+def check_protected(session_id: str, force_protected: bool = False) -> None:
+	"""Raise ItaError("protected", ...) if session_id is protected.
 
 	Call this in any write command (run, send, key, inject, close, clear, restart)
 	before performing the operation. Prevents accidentally writing to a designated
 	session (e.g. the active Claude Code terminal) when focus shifts.
+
+	`force_protected=True` bypasses the check (`--force-protected` flag, #294).
+	The separate `--force-lock` flag controls writelock bypass; the two are
+	now orthogonal — neither implies the other.
 	"""
-	if force:
+	if force_protected:
 		return
 	if session_id in get_protected():
-		raise click.ClickException(
+		raise ItaError("protected",
 			f"Session {session_id[:8]}… is protected (~/.ita_protected). "
-			f"Use --force to override, or `ita unprotect -s {session_id[:8]}` to remove protection."
-		)
+			f"Use --force-protected to override, or "
+			f"`ita unprotect -s {session_id[:8]}` to remove protection.")
