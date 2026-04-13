@@ -282,7 +282,7 @@ async def resolve_session(connection, session_id: str | None = None) -> 'iterm2.
 	Raises ClickException if no session_id given or nothing found.
 	"""
 	if not session_id:
-		raise click.ClickException(
+		raise ItaError("bad-args",
 			"no session specified. Use -s NAME or -s UUID-PREFIX.\n"
 			"Run 'ita status' to list available sessions.")
 	app = await iterm2.async_get_app(connection)
@@ -297,7 +297,7 @@ async def resolve_session(connection, session_id: str | None = None) -> 'iterm2.
 		return name_matches[0]
 	if len(name_matches) > 1:
 		ids = ', '.join(s.session_id[:8] for s in name_matches)
-		raise click.ClickException(
+		raise ItaError("bad-args",
 			f"session name {session_id!r} is ambiguous — matches: {ids}.\n"
 			f"Use -s UUID-PREFIX to disambiguate.")
 	# 3. 8+ char UUID prefix match (case-insensitive)
@@ -308,9 +308,9 @@ async def resolve_session(connection, session_id: str | None = None) -> 'iterm2.
 			return prefix_matches[0]
 		if len(prefix_matches) > 1:
 			ids = ', '.join(s.session_id[:8] for s in prefix_matches)
-			raise click.ClickException(
+			raise ItaError("bad-args",
 				f"session prefix {session_id!r} is ambiguous — matches: {ids}.")
-	raise click.ClickException(
+	raise ItaError("not-found",
 		f"session not found: {session_id}. Run 'ita status' to list sessions."
 	)
 
