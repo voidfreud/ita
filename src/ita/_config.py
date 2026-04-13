@@ -400,22 +400,34 @@ def pref_theme():
 @click.argument('value', required=False)
 @click.option('-q', '--quiet', is_flag=True, help='Suppress confirmation.')
 def pref_tmux(key, value, quiet):
-	"""Get all tmux prefs, or set a specific one.
-	Key is a PreferenceKey enum name (e.g. OPEN_TMUX_WINDOWS_IN)."""
+	"""Get all tmux prefs, or set a specific one (#232).
+	Key is a PreferenceKey enum name (e.g. OPEN_TMUX_WINDOWS_IN).
+
+	Set calls round-trip: we set the pref, read it back, and raise
+	`ItaError("bad-args", ...)` (rc=6) if iTerm2 silently rejected the
+	write. Silent mutation is forbidden by CONTRACT §3."""
 	async def _run(connection):
 		if key and value:
 			pref_key = _resolve_pref_key(key)
 			typed = int(value) if value.isdigit() else (
 				True if value == 'true' else (False if value == 'false' else value))
 			await iterm2.async_set_preference(connection, pref_key, typed)
-		else:
-			keys = ['OPEN_TMUX_WINDOWS_IN', 'TMUX_DASHBOARD_LIMIT',
-					'AUTO_HIDE_TMUX_CLIENT_SESSION', 'USE_TMUX_PROFILE']
-			return {k: await iterm2.async_get_preference(connection, _resolve_pref_key(k)) for k in keys}
-	result = run_iterm(_run)
-	if key and value:
+			# Read back so we don't report Set: on a silently-rejected write.
+			actual = await iterm2.async_get_preference(connection, pref_key)
+			return ('set', typed, actual)
+		keys = ['OPEN_TMUX_WINDOWS_IN', 'TMUX_DASHBOARD_LIMIT',
+				'AUTO_HIDE_TMUX_CLIENT_SESSION', 'USE_TMUX_PROFILE']
+		return ('get',
+				{k: await iterm2.async_get_preference(connection, _resolve_pref_key(k)) for k in keys})
+	mode, *rest = run_iterm(_run)
+	if mode == 'set':
+		typed, actual = rest
+		if actual != typed:
+			raise ItaError("bad-args",
+				f"iTerm2 rejected tmux pref {key}={value!r}; still {actual!r}")
 		success_echo(f"Set: {key}", quiet=quiet)
-	elif isinstance(result, dict):
+	elif mode == 'get':
+		(result,) = rest
 		click.echo(json_dumps(result, pretty=True))
 
 
