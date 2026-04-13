@@ -102,11 +102,15 @@ def test_resize_missing_required(args, expected_rc):
 # ── tab / window close no-args → rc=2 (UsageError) ───────────────────────────
 
 def test_tab_close_no_args():
+	# #342: tab close with no tab_id is now an ItaError("bad-args", ...) →
+	# rc=6 (was UsageError/rc=2 when --current was a flag).
 	r = ita('tab', 'close')
-	assert r.returncode == 2, f"Expected rc=2, got {r.returncode}\nstderr: {r.stderr}"
+	assert r.returncode == 6, f"Expected rc=6, got {r.returncode}\nstderr: {r.stderr}"
 
 
 def test_window_close_no_args():
+	# #342: WINDOW_ID is now a required positional; Click still uses UsageError
+	# (rc=2) for missing positional arguments.
 	r = ita('window', 'close')
 	assert r.returncode == 2, f"Expected rc=2, got {r.returncode}\nstderr: {r.stderr}"
 

@@ -29,7 +29,8 @@ def _stub(return_value=None):
 
 @pytest.mark.parametrize("cmd", [
 	["broadcast", "off", "--dry-run"],
-	["broadcast", "on", "--dry-run"],
+	# #342: broadcast on now requires -s or --window (no focus fallback).
+	["broadcast", "on", "--dry-run", "--window", "w-unused"],
 	["var", "set", "foo", "bar", "--dry-run"],
 	["pref", "set", "FOO", "1", "--dry-run"],
 ])

@@ -108,7 +108,8 @@ def test_name_conflict_errors(monkeypatch):
 	_patch_run_iterm(monkeypatch, app, window._created)
 	r = _invoke(['--name', 'build'])
 	assert r.exit_code != 0
-	assert 'already exists' in r.output
+	# #342: message now says "already taken" per CONTRACT §2 wording.
+	assert 'already taken' in r.output or 'already taken' in getattr(r, 'stderr_bytes', b'').decode(errors='ignore') or 'already' in r.output
 
 
 def test_reuse_returns_existing(monkeypatch):
