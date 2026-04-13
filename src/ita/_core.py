@@ -272,27 +272,63 @@ def run_iterm(coro: Callable[..., Awaitable[Any]]) -> Any:
 # ── Session resolver ────────────────────────────────────────────────────────
 
 def _all_sessions(app):
-	"""Return a flat list of every session across all windows/tabs."""
+	"""Return a flat list of every session across all windows/tabs.
+
+	Canonical iteration set: `app.terminal_windows` per CONTRACT §2 (#297).
+	`app.windows` also returns hotkey / hidden windows which the agent
+	surface is not expected to reference; any module iterating sessions
+	uses this helper or mirrors its accessor."""
 	return [s for w in app.terminal_windows for t in w.tabs for s in t.sessions]
+
+
+async def _fresh_name(session) -> str:
+	"""Read the live session name via a fresh RPC, falling back to the cached
+	snapshot. The app-snapshot `session.name` is populated asynchronously by
+	iTerm2 and can lag behind a prior `async_set_name` call from another
+	process (see #160, #289), so for identity checks (uniqueness, resolution)
+	we query the variable directly.
+
+	Moved here from _session.py so resolve_session can use it without a
+	circular import. Kept importable from _session via back-compat re-export."""
+	try:
+		fresh = await session.async_get_variable('session.name')
+	except Exception:
+		fresh = None
+	if not fresh:
+		try:
+			fresh = await session.async_get_variable('name')
+		except Exception:
+			fresh = None
+	if not fresh:
+		fresh = session.name
+	return strip(fresh or '')
 
 
 async def resolve_session(connection, session_id: str | None = None) -> 'iterm2.Session':
 	"""
-	Resolve target session by exact ID, name, or 8+ char UUID prefix.
-	Raises ClickException if no session_id given or nothing found.
+	Resolve target session by exact UUID, exact name, or 8+ char UUID prefix
+	(CONTRACT §2). Raises `ItaError("bad-args")` on empty / ambiguous input
+	and `ItaError("not-found")` when nothing matches.
+
+	Name comparison uses the *fresh* variable read (`_fresh_name`) rather
+	than the app-snapshot cache, which can lag behind another ita process's
+	`async_set_name` (#160, #289).
 	"""
 	if not session_id:
 		raise ItaError("bad-args",
 			"no session specified. Use -s NAME or -s UUID-PREFIX.\n"
 			"Run 'ita status' to list available sessions.")
 	app = await iterm2.async_get_app(connection)
-	# 1. Exact session ID match
+	# 1. Exact session ID match — UUIDs can't collide, no freshness concern.
 	session = app.get_session_by_id(session_id)
 	if session:
 		return session
-	# 2. Exact name match
+	# 2. Exact name match — fetch fresh names to avoid the stale-cache race
+	#    (#289). Pay one RPC per session; the resolver is rarely on a hot
+	#    path and correctness beats the latency tax.
 	all_sess = _all_sessions(app)
-	name_matches = [s for s in all_sess if s.name == session_id]
+	fresh_names = [await _fresh_name(s) for s in all_sess]
+	name_matches = [s for s, n in zip(all_sess, fresh_names) if n == session_id]
 	if len(name_matches) == 1:
 		return name_matches[0]
 	if len(name_matches) > 1:
@@ -300,7 +336,9 @@ async def resolve_session(connection, session_id: str | None = None) -> 'iterm2.
 		raise ItaError("bad-args",
 			f"session name {session_id!r} is ambiguous — matches: {ids}.\n"
 			f"Use -s UUID-PREFIX to disambiguate.")
-	# 3. 8+ char UUID prefix match (case-insensitive)
+	# 3. 8+ char UUID prefix match (case-insensitive). Below the threshold
+	#    is treated as not-found, not as a short-prefix match — the 8-char
+	#    floor is a CONTRACT §2 rule, not a heuristic.
 	if len(session_id) >= 8:
 		sid_lower = session_id.lower()
 		prefix_matches = [s for s in all_sess if s.session_id.lower().startswith(sid_lower)]

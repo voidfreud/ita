@@ -19,7 +19,7 @@ def status(use_json, ids_only, fast, filter_expr):
 	async def _run(connection):
 		app = await iterm2.async_get_app(connection)
 		sessions = []
-		for window in app.windows:
+		for window in app.terminal_windows:
 			for tab in window.tabs:
 				for session in tab.sessions:
 					# --fast skips the two async_get_variable round-trips per
@@ -187,7 +187,7 @@ def session_info(session_id, use_json):
 		# Locate containing window/tab (Session doesn't expose a back-ref reliably)
 		window_id = None
 		tab_id = None
-		for w in app.windows:
+		for w in app.terminal_windows:
 			for t in w.tabs:
 				for s in t.sessions:
 					if s.session_id == target.session_id:

@@ -1,10 +1,21 @@
 # src/_management.py
 """Management commands: profile group, presets, theme."""
 import json
-import re
 import click
 import iterm2
 from ._core import cli, run_iterm, resolve_session
+
+# Explicit whitelist of LocalWriteOnlyProfile color setters (#329). Built at
+# import time from the actual iTerm2 API so the check can't drift from the
+# library. Previously `re.search(r'_color(_light|_dark)?$', ...)` matched
+# anything ending in those suffixes, including non-color APIs the library may
+# introduce later. The whitelist is the narrowest correct check: only names
+# that both exist on LocalWriteOnlyProfile AND end in the color suffixes.
+_COLOR_SUFFIXES = ('_color', '_color_light', '_color_dark')
+COLOR_PROPERTIES = frozenset(
+	name for name in dir(iterm2.LocalWriteOnlyProfile)
+	if name.endswith(_COLOR_SUFFIXES) and not name.startswith(('_', 'use_'))
+)
 
 THEME_SHORTCUTS = {
 	# 'red' and 'green' are handled specially: no built-in iTerm2 preset
@@ -128,7 +139,12 @@ def profile_set(property_name, value, session_id):
 				f"Unknown profile property: {property_name!r}. "
 				"See iterm2.LocalWriteOnlyProfile for valid setters.")
 
-	if re.search(r'_color(_light|_dark)?$', property_name) and not property_name.startswith('use_'):
+	# #329: narrow whitelist derived from the actual API (all real setters
+	# live under the `set_*` namespace on LocalWriteOnlyProfile). The block
+	# above canonicalizes `foo` → `set_foo` when a direct attribute is
+	# missing, so by the time we get here `property_name` is the name the
+	# library will accept. Match it against the whitelist directly.
+	if property_name in COLOR_PROPERTIES:
 		try:
 			color_value = iterm2.Color(int(value[1:3], 16), int(value[3:5], 16), int(value[5:7], 16))
 		except (ValueError, IndexError):

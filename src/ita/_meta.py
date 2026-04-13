@@ -50,7 +50,7 @@ def doctor():
 
 		# Shell integration: check all sessions for iterm2_shell_integration_version
 		si_version = None
-		for window in app.windows:
+		for window in app.terminal_windows:
 			for tab in window.tabs:
 				for session in tab.sessions:
 					val = await session.async_get_variable('user.iterm2_shell_integration_version')

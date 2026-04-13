@@ -6,28 +6,13 @@ import click
 import iterm2
 from ._core import (cli, run_iterm, resolve_session, strip, read_session_lines,
 	check_protected, _all_sessions, parse_filter, match_filter,
-	session_writelock, _SENTINEL_RE)
-from ._envelope import ita_command
+	session_writelock, _SENTINEL_RE, _fresh_name)
+from ._envelope import ita_command, ItaError
 
-
-async def _fresh_name(session) -> str:
-	"""Read the live session name via a fresh RPC, falling back to the cached
-	snapshot. The app-snapshot `session.name` is populated asynchronously by
-	iTerm2 and can lag behind a prior `async_set_name` call from another
-	process (see #160), so for uniqueness / reuse checks we query the variable
-	directly."""
-	try:
-		fresh = await session.async_get_variable('session.name')
-	except Exception:
-		fresh = None
-	if not fresh:
-		try:
-			fresh = await session.async_get_variable('name')
-		except Exception:
-			fresh = None
-	if not fresh:
-		fresh = session.name
-	return strip(fresh or '')
+# `_fresh_name` lives in `_core.py` now (moved for #289 so resolve_session can
+# reach it without a circular import). Re-exported here so any caller still
+# doing `from ._session import _fresh_name` keeps working.
+__all__ = ['_fresh_name']
 
 
 async def _wait_name_visible(session, target: str, attempts: int = 5, delay: float = 0.1) -> None:
@@ -132,10 +117,13 @@ def new(new_window, profile, session_name, reuse, replace, cwd, run_cmd, as_json
 				else:
 					tab = await window.async_create_tab(profile=profile)
 					session = tab.current_session
-		except Exception as e:
-			if 'INVALID_PROFILE_NAME' in str(e):
-				raise click.ClickException(f"Profile not found: {profile!r}") from e
-			raise
+		except iterm2.CreateTabException as e:
+			# iTerm2 signals invalid profile via the CreateTabResponse status
+			# name serialized as the exception message (#322). Check the
+			# structured status name, not a substring of arbitrary output.
+			if str(e) == 'INVALID_PROFILE_NAME':
+				raise ItaError("bad-args", f"Profile not found: {profile!r}") from e
+			raise ItaError("bad-args", f"Could not create tab: {e}") from e
 		# Set session name
 		name = session_name
 		if not name:
@@ -373,14 +361,21 @@ def restart(session_id, quiet, force):
 			await session.async_restart(only_if_exited=False)
 		# Wait briefly for iTerm2 to register the new session object
 		await asyncio.sleep(0.5)
-		# Re-fetch app state and find the replacement session in the same tab
+		# Re-fetch app state and find the replacement session in the same tab.
+		# Use `terminal_windows` for parity with the rest of the codebase
+		# (#297). If we cannot find a replacement we MUST NOT hand back the
+		# old session id — that's the #319 staleness bug: the caller would
+		# act on a dead session. Raise not-found instead.
 		app2 = await iterm2.async_get_app(connection)
 		if tab_id:
-			for w in app2.windows:
+			for w in app2.terminal_windows:
 				for t in w.tabs:
 					if t.tab_id == tab_id and t.current_session:
 						return t.current_session.session_id
-		return old_id
+		raise ItaError("not-found",
+			f"session {old_id} restarted, but no replacement session was "
+			f"found in tab {tab_id}. The session may have been closed; "
+			f"run 'ita status' to inspect.")
 
 	new_sid = run_iterm(_run)
 	if new_sid:

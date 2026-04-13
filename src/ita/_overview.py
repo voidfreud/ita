@@ -42,7 +42,7 @@ async def _gather(connection, lines: int, include_preview: bool,
 		current_sid = cw.current_tab.current_session.session_id
 
 	windows = []
-	for window in app.windows:
+	for window in app.terminal_windows:
 		w_entry = {
 			'window_id': window.window_id,
 			'tabs': [],

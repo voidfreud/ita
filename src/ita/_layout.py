@@ -139,7 +139,7 @@ def window_frame(x, y, width, height):
 def window_list(use_json):
 	async def _run(connection):
 		app = await iterm2.async_get_app(connection)
-		return [{'window_id': w.window_id, 'tabs': len(w.tabs)} for w in app.windows]
+		return [{'window_id': w.window_id, 'tabs': len(w.tabs)} for w in app.terminal_windows]
 	windows = run_iterm(_run)
 	if use_json:
 		click.echo(json.dumps(windows))

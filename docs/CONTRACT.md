@@ -34,7 +34,17 @@ Every session, tab, window, tmux session, and broadcast domain is referenced **e
 - Collisions (two sessions sharing a name) are errors, never silently disambiguated.
 - Tab / window / tmux / broadcast-domain references follow the same rule: explicit id or name, never implicit.
 
-Issues codified: #289 (racy cached names), #299 (windows iterable unification), #297, #304.
+Resolver shape (session and tab): exact id → exact name/title → 8+ char
+case-insensitive id prefix → error. Anything shorter than 8 characters that
+isn't an exact id/name match is `not-found` (rc=2), never a "short-prefix"
+best-effort. Two or more matches at any stage are `bad-args` (rc=6). Name
+comparison reads the *fresh* name variable, not the app-snapshot cache
+(#289). The canonical iteration set is `app.terminal_windows`; hotkey and
+hidden windows are intentionally excluded (#297). The tab resolver mirrors
+this shape: exact tab_id → integer index (current window) → exact title →
+8+ char tab_id prefix (#224). Substring / fuzzy matching is forbidden.
+
+Issues codified: #289 (racy cached names), #299 (windows iterable unification), #297, #304, #224.
 
 ---
 
