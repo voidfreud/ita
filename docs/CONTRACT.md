@@ -46,6 +46,27 @@ this shape: exact tab_id → integer index (current window) → exact title →
 
 Issues codified: #289 (racy cached names), #299 (windows iterable unification), #297, #304, #224.
 
+**Mandatory naming on creation (#342).** Every session, tab, window, and tmux
+session has a name from the moment of creation — there are no nameless
+objects. Creation commands behave as follows:
+
+- `--name <NAME>` provided AND `<NAME>` is free → object created with `<NAME>`.
+- `--name <NAME>` provided AND `<NAME>` is taken → `bad-args` (rc=6) with a
+  message naming the conflict; never silently auto-rename a user-chosen name.
+  (Exceptions: `--reuse` returns the existing object; `--replace` closes-then-recreates.)
+- `--name` not provided → auto-name with the lowest free counter for the
+  object kind: `s1`, `s2`, … for sessions; `t1`, `t2`, … for tabs; `w1`, `w2`, …
+  for windows; `tmux1`, `tmux2`, … for tmux sessions. Scan existing names; pick
+  the first free counter.
+
+**Focus-fallback is forbidden, end of (#342).** No command resolves to "the
+current / active / focused" session, tab, window, or tmux session. Every
+command takes an explicit reference (`-s`, `--tab`, `--window`, `--tmux`); a
+missing reference is `bad-args` (rc=6), never a silent default. The single
+narrow exception is iTerm2's *own* UI commands that are explicitly about
+focus (e.g. `ita focus -s NAME` *moves* focus — its target is still
+explicit) — these are documented per-command and never expand the fallback.
+
 ---
 
 ## §3 Output contract
@@ -240,6 +261,32 @@ The two flags are **orthogonal**: passing only `--force-protected` against a ses
 **Bulk ops are gated per-target.** `session close --all`, `session clear --where`, and `broadcast send` each iterate members and run `check_protected` + `session_writelock` for every target. A protected member in a fleet is skipped and reported in the per-member result array (never silently included). A locked member surfaces `rc=5` for that member and the bulk envelope reports it via `warnings[]` / the per-member record; the orchestrator's own lock is not a substitute for per-member locking (#283, #258).
 
 Issues codified: #283, #258, #294, #321, #282 (closed), #220, #285, #279, #284.
+
+**Destructive blast radius — tab-by-tab default (#340).** Closing a window
+can take down the Claude Code session driving ita; this is forbidden as a
+default. Rules:
+
+- **Default granularity is tab.** `ita close` and `ita session close` operate
+  on a single tab unless the caller explicitly requests window-level closure.
+- **`ita window close` requires `--allow-window-close`** (or equivalent
+  explicit flag) to actually close the window. Without it, error with
+  `bad-args` (rc=6).
+- **Last-tab cascade is refused.** When closing a tab would also close its
+  window (because it's the only tab in the window), the close errors with
+  `bad-args` (rc=6) unless `--allow-window-close` is also passed. Never
+  silently take the window down with the tab.
+- **Bulk close protects against cascade.** `close --all` / `close --where`
+  iterate per-tab and refuse any close that would cascade-close a window
+  (unless `--allow-window-close`). Each refused target is reported in
+  `warnings[]` / per-member result, never silently skipped.
+- **Auto-protect the Claude Code session (#340).** On every ita invocation,
+  detect the Claude Code session driving the process (env var `CLAUDECODE` /
+  process ancestry) and add it to `~/.ita_protected` for the duration of the
+  invocation. Idempotent — don't add if already present; don't remove on
+  exit (the user controls that). This guarantees that even an explicit
+  `ita close -s <claude-code-session>` is gated behind `--force-protected`.
+
+Issues codified above + #340.
 
 ---
 

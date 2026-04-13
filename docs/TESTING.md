@@ -79,6 +79,24 @@ Existing fixtures stay. All fixtures below are implemented in `tests/conftest.py
 
 **Rule:** no test spins up its own session outside fixtures. All lifecycle goes through the registry so `sweep_leaked_sessions` can detect leaks.
 
+### 4.1 Cleanup is unmissable (#341)
+
+A leaky test suite once opened ~500 sessions and crashed the host. Cleanup is **non-negotiable** and must work even when a test crashes mid-creation.
+
+| Layer | Mechanism | Purpose |
+|---|---|---|
+| 1 | Per-test `addfinalizer` in every fixture that creates iTerm2 state | Normal-path teardown |
+| 2 | `try/finally` inside `session_factory` and any fixture creating > 1 object | Crash-during-create still triggers cleanup of partials |
+| 3 | Module-level `atexit` hook in `tests/conftest.py` that closes every `ita-test-*` session | Belt-and-braces; runs even on signal/timeout |
+| 4 | **Hard-ceiling sentinel** — between tests, count `ita-test-*` sessions; if > 50, abort the entire pytest run with a loud error | Catastrophic-leak circuit breaker |
+| 5 | Every test fixture creates objects in *existing* windows by default (tabs over windows) so an orphan tab is cheaper than an orphan window | Reduce per-leak blast radius |
+
+**Naming convention:** every test-created object is prefixed `ita-test-` so cleanup can identify them deterministically. Naming is mandatory per CONTRACT §2.
+
+**Window-leak audit:** if a test creates a session in a new window, the *window* leaks too (orphan windows are worse than orphan tabs). Prefer tab-creation tests; use `--allow-window-close` only when the window is genuinely test-owned and you also pass `--allow-window-close` on cleanup.
+
+**Failure mode:** if you suspect a leak, run `ita status --json | jq '[.[] | select(.session_name | startswith("ita-test-"))] | length'`. Anything > 0 outside an active test run is a leak; `ita close --where session_name~=ita-test- --all-or-nothing -y --allow-window-close` clears them.
+
 ---
 
 ## 5. Cross-cutting contracts (`tests/test_contracts.py`)
