@@ -3,9 +3,7 @@
 After `ita new`, poll until the session accepts a command or the budget
 expires. Budget = 10s per session.
 
-Known-broken: stabilization via `ita stabilize` is not yet implemented
-(issue #268). Tests that rely on the session being "fully ready" before
-a read/run are marked xfail until that lands.
+`ita stabilize` is now implemented (#268); xfail markers removed.
 
 Marks: @pytest.mark.contract + @pytest.mark.integration
 """
@@ -50,16 +48,8 @@ def test_new_session_ready_within_budget(request):
 
 @pytest.mark.contract
 @pytest.mark.integration
-@pytest.mark.xfail(
-	strict=False,
-	reason="stabilize not yet implemented (#268); session may not be shell-ready for run",
-)
 def test_new_session_accepts_run_immediately(request):
-	"""A freshly created session accepts `ita run echo hi` without delay.
-
-	xfail(strict=False) until `ita stabilize` lands — session shell init
-	may not be complete immediately after `ita new` returns (#268).
-	"""
+	"""A freshly created session accepts `ita run echo hi` after stabilize."""
 	name = (TEST_SESSION_PREFIX + "run-ready").replace(" ", "_")
 	r = ita("new", "--name", name)
 	assert r.returncode == 0, f"ita new failed: {r.stderr}"
@@ -81,15 +71,8 @@ def test_new_session_accepts_run_immediately(request):
 
 @pytest.mark.contract
 @pytest.mark.integration
-@pytest.mark.xfail(
-	strict=False,
-	reason="stabilize not yet implemented (#268); read output may be empty on fresh session",
-)
 def test_new_session_read_non_empty(request):
-	"""A freshly created session has non-empty read output after shell init.
-
-	xfail(strict=False) pending #268.
-	"""
+	"""A freshly created session has non-empty read output after shell init."""
 	name = (TEST_SESSION_PREFIX + "read-ready").replace(" ", "_")
 	r = ita("new", "--name", name)
 	assert r.returncode == 0, f"ita new failed: {r.stderr}"

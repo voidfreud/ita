@@ -34,6 +34,7 @@ import _config       # noqa: E402, F401 — var, app, pref, broadcast groups
 import _interactive  # noqa: E402, F401 — alert, ask, pick, save-dialog, menu group, repl
 import _tmux         # noqa: E402, F401 — tmux -CC group
 import _events       # noqa: E402, F401 — on group, coprocess, annotate, rpc
+import _readiness    # noqa: E402, F401 — stabilize (#268)
 
 if __name__ == '__main__':
 	cli()
