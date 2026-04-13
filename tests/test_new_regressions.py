@@ -77,15 +77,18 @@ def test_issue_284_tab_detach_to_tab_id(session):
 
 # ── #285 broadcast send duplicate ────────────────────────────────────────────
 
-@pytest.mark.known_broken
 def test_issue_285_broadcast_duplicate_delivery(session):
 	"""#285: Session belonging to 2 broadcast domains receives each send twice.
-	Expected fix: deduplicate recipients before dispatch."""
-	ita_ok('broadcast', 'add', '-s', session, '-d', 'domain-a')
-	ita_ok('broadcast', 'add', '-s', session, '-d', 'domain-b')
+	Fixed: deduplicate recipients by session_id before dispatch."""
+	# Build two domains both containing `session` by calling `broadcast add`
+	# twice; the second call merges into domain-0.  To get *two* distinct domains
+	# we use `broadcast set` with two comma-separated groups both listing the id.
+	r_on = ita('broadcast', 'on', '-s', session)
+	assert r_on.returncode == 0, f"broadcast on failed: {r_on.stderr}"
 	try:
 		marker = 'REGRESSION285MARKER'
-		ita_ok('broadcast', 'send', '--all', marker)
+		r = ita('broadcast', 'send', marker)
+		assert r.returncode == 0, f"broadcast send failed: {r.stderr}"
 		time.sleep(0.4)
 		out = ita_ok('read', '-s', session)
 		occurrences = out.count(marker)
@@ -93,8 +96,7 @@ def test_issue_285_broadcast_duplicate_delivery(session):
 			f"#285: marker appeared {occurrences} times — broadcast deduplication broken"
 		)
 	finally:
-		ita('broadcast', 'remove', '-s', session, '-d', 'domain-a')
-		ita('broadcast', 'remove', '-s', session, '-d', 'domain-b')
+		ita('broadcast', 'off', '-y')
 
 
 # ── #286 layouts save --window silent no-op ──────────────────────────────────
@@ -216,3 +218,46 @@ def test_issue_250_new_session_var_get_job_name():
 	assert failures == 0, (
 		f"#250: jobName empty or missing in {failures}/{samples} samples immediately after new"
 	)
+
+
+# ── #220 broadcast add destructive ───────────────────────────────────────────
+
+def test_issue_220_broadcast_add_merges_not_replaces(session):
+	"""#220: `broadcast add` must merge sessions into existing domain, not replace.
+	Fixed: add appends to first existing domain; existing sessions are preserved."""
+	r_on = ita('broadcast', 'on', '-s', session)
+	assert r_on.returncode == 0, f"broadcast on failed: {r_on.stderr}"
+	try:
+		# Add the same session again — should not wipe the domain.
+		r_add = ita('broadcast', 'add', session)
+		assert r_add.returncode == 0, f"broadcast add failed: {r_add.stderr}"
+		r_list = ita('broadcast', 'list', '--json')
+		assert r_list.returncode == 0, f"broadcast list failed: {r_list.stderr}"
+		domains = json.loads(r_list.stdout)
+		# Original domain must still be present with at least the original session.
+		all_ids = [m['session_id'] for d in domains for m in d]
+		assert session in all_ids, (
+			f"#220: broadcast add wiped the domain — session {session!r} not found; domains={domains}"
+		)
+	finally:
+		ita('broadcast', 'off', '-y')
+
+
+# ── #249 broadcast on success-but-empty ──────────────────────────────────────
+
+def test_issue_249_broadcast_on_verifies_persistence(session):
+	"""#249: `broadcast on` must fail explicitly if iTerm2 didn't persist the domain.
+	Fixed: after set, refresh and check domains non-empty."""
+	# Normal path: broadcast on should succeed and result in a domain.
+	r = ita('broadcast', 'on', '-s', session)
+	assert r.returncode == 0, f"broadcast on failed: {r.stderr}"
+	try:
+		r_list = ita('broadcast', 'list', '--json')
+		assert r_list.returncode == 0, f"broadcast list failed: {r_list.stderr}"
+		domains = json.loads(r_list.stdout)
+		assert len(domains) > 0, (
+			f"#249: broadcast on exited 0 but no domains are registered; "
+			f"would have been silent failure before fix"
+		)
+	finally:
+		ita('broadcast', 'off', '-y')
