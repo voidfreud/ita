@@ -328,6 +328,14 @@ def run(cmd, timeout, lines, tail_n, use_json, persist, check_integration, stdin
 				# exit_code=None. Callers read `shell_integration: false` +
 				# `exit_code: null` as "command dispatched, completion unobservable."
 
+		# #324: --persist runs in the live shell, so command output races with
+		# any in-flight input the user/agent may interleave. The writelock bars
+		# ita-vs-ita races, but not shell-side typing. Add a brief settle before
+		# the screen read so trailing output rows land inside the capture window.
+		# This is a runtime guard — the prior code only documented the risk.
+		if persist:
+			await asyncio.sleep(0.2)
+
 		elapsed_ms = int((time.time() - start) * 1000)
 
 		# Find the command-echo row by searching for our unique tag. The tag
