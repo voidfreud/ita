@@ -4,10 +4,11 @@
 Replaces the 2–3 call pattern (`status` + `read --all` [+ `tmux connections`])
 with a single IPC round that yields window/tab/session hierarchy, per-session
 metadata, and optional trailing output lines. Token-compact by default."""
+import asyncio
 import json
 import click
 import iterm2
-from ._core import cli, run_iterm, strip, parse_filter, match_filter
+from ._core import cli, run_iterm, strip, parse_filter, match_filter, snapshot
 from ._output import _clean_lines
 from ._state import derive_state
 
@@ -23,24 +24,46 @@ async def _tail_lines(session, n: int) -> list[str]:
 
 async def _gather(connection, lines: int, include_preview: bool,
 		filter_kov: tuple | None) -> dict:
-	app = await iterm2.async_get_app(connection)
-	# tmux connection summary — cheap, one call
-	tmux_state = []
-	try:
-		conns = await iterm2.tmux.async_get_tmux_connections(connection)
+	# Single full-app sweep (#300). Snapshot exposes app, sessions, fresh
+	# names, and tab/window back-references in one shot.
+	snap = await snapshot(connection)
+	app = snap.app
+
+	# Parallel per-session variable + state fetches (#301). The serial
+	# `await session.async_get_variable(..)` loop was the bottleneck on
+	# many-session apps; gather collapses it into one round-trip wave.
+	async def _per_session(session):
+		proc, path, state = await asyncio.gather(
+			session.async_get_variable('jobName'),
+			session.async_get_variable('path'),
+			derive_state(app, session),
+			return_exceptions=False,
+		)
+		return strip(proc or ''), strip(path or ''), state
+
+	async def _tmux_summary():
+		out = []
+		try:
+			conns = await iterm2.tmux.async_get_tmux_connections(connection)
+		except Exception:
+			return out
 		for c in conns or []:
-			tmux_state.append({
+			out.append({
 				'connection_id': getattr(c, 'connection_id', None),
 				'owning_session_id': getattr(
 					getattr(c, 'owning_session', None), 'session_id', None),
 			})
-	except Exception:
-		pass
+		return out
 
-	current_sid = None
-	cw = app.current_terminal_window
-	if cw and cw.current_tab and cw.current_tab.current_session:
-		current_sid = cw.current_tab.current_session.session_id
+	sessions_task = (
+		asyncio.gather(*(_per_session(s) for s in snap.sessions))
+		if snap.sessions else asyncio.sleep(0, result=[])
+	)
+	per_session_results, tmux_state = await asyncio.gather(
+		sessions_task, _tmux_summary())
+	per_sid = {s.session_id: r for s, r in zip(snap.sessions, per_session_results)}
+
+	current_sid = snap.current_session_id
 
 	windows = []
 	for window in app.terminal_windows:
@@ -55,12 +78,11 @@ async def _gather(connection, lines: int, include_preview: bool,
 				'sessions': [],
 			}
 			for session in tab.sessions:
-				proc = strip(await session.async_get_variable('jobName') or '')
-				path = strip(await session.async_get_variable('path') or '')
-				state = await derive_state(app, session)
+				proc, path, state = per_sid.get(session.session_id, ('', '', 'creating'))
 				s_entry = {
 					'session_id': session.session_id,
-					'session_name': strip(session.name or ''),
+					'session_name': snap.fresh_names.get(session.session_id, '')
+						or strip(session.name or ''),
 					'process': proc,
 					'path': path,
 					'window_id': window.window_id,

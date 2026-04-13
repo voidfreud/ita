@@ -13,9 +13,11 @@ and the `cli` root. Names extracted to the modules above are re-exported here
 so existing `from _core import X` imports keep working; once each Phase 3 branch
 touches its module, it can import directly from the correct source.
 """
+import asyncio
 import json
 import sys
 from collections.abc import Awaitable, Callable
+from dataclasses import dataclass, field
 from typing import Any
 
 import click
@@ -158,6 +160,68 @@ async def _fresh_name(session) -> str:
 	return strip(fresh or '')
 
 
+@dataclass
+class AppSnapshot:
+	"""One-shot view of the live iTerm2 app tree (CONTRACT §7).
+
+	Built once per ita invocation by `snapshot()`; subsequent reads are O(1)
+	dict/list lookups, never additional `app.async_get_*` sweeps.
+
+	Fields:
+	  - `app`: the live `iterm2.App` (still good for direct mutator calls).
+	  - `sessions`: every session under `app.terminal_windows` (CONTRACT §2).
+	  - `fresh_names`: session_id → fresh name read (parallel-fetched once).
+	  - `tab_of` / `window_of`: session_id → containing Tab / Window object.
+	  - `current_session_id`: focused session id, or `None`.
+
+	`names()` returns the populated set used for uniqueness / next_free_name.
+	The `app` reference stays live; if a caller needs *post-mutation* state
+	(e.g. after creating a new session), it should call `snapshot()` again.
+	"""
+	app: 'iterm2.App'
+	sessions: list = field(default_factory=list)
+	fresh_names: dict[str, str] = field(default_factory=dict)
+	tab_of: dict = field(default_factory=dict)
+	window_of: dict = field(default_factory=dict)
+	current_session_id: str | None = None
+
+	def names(self) -> set[str]:
+		"""Populated fresh-name set, suitable for `next_free_name(taken=…)`."""
+		return {n for n in self.fresh_names.values() if n}
+
+
+async def snapshot(connection) -> AppSnapshot:
+	"""Single full app sweep. Replaces ad-hoc `async_get_app(..)` + nested
+	loops scattered across commands (#300).
+
+	Fresh names are fetched in parallel via `asyncio.gather` — replaces the
+	serial `await _fresh_name(s) for s in …` loops in `resolve_session`,
+	`_session_records`, `new`, `tab_new`, `window_new` (#160 + #301)."""
+	app = await iterm2.async_get_app(connection)
+	snap = AppSnapshot(app=app)
+	for window in app.terminal_windows:
+		for tab in window.tabs:
+			for session in tab.sessions:
+				snap.sessions.append(session)
+				snap.tab_of[session.session_id] = tab
+				snap.window_of[session.session_id] = window
+	if snap.sessions:
+		names = await asyncio.gather(
+			*(_fresh_name(s) for s in snap.sessions),
+			return_exceptions=False,
+		)
+		for s, n in zip(snap.sessions, names):
+			snap.fresh_names[s.session_id] = n
+	try:
+		cw = app.current_terminal_window
+		if cw and cw.current_tab and cw.current_tab.current_session:
+			snap.current_session_id = cw.current_tab.current_session.session_id
+	except AttributeError:
+		# Test fakes may not wire current_session through; tolerate it.
+		pass
+	return snap
+
+
 def next_free_name(prefix: str, taken: set[str]) -> str:
 	"""Lowest-counter free name for an object kind (CONTRACT §2 "Mandatory
 	naming on creation (#342)").
@@ -191,12 +255,11 @@ async def resolve_session(connection, session_id: str | None = None) -> 'iterm2.
 	session = app.get_session_by_id(session_id)
 	if session:
 		return session
-	# 2. Exact name match — fetch fresh names to avoid the stale-cache race
-	#    (#289). Pay one RPC per session; the resolver is rarely on a hot
-	#    path and correctness beats the latency tax.
-	all_sess = _all_sessions(app)
-	fresh_names = [await _fresh_name(s) for s in all_sess]
-	name_matches = [s for s, n in zip(all_sess, fresh_names) if n == session_id]
+	# 2. Exact name match — fetch fresh names via the parallel snapshot
+	#    (#289 + #300/#301). One concurrent batch instead of N serial RPCs.
+	snap = await snapshot(connection)
+	all_sess = snap.sessions
+	name_matches = [s for s in all_sess if snap.fresh_names.get(s.session_id) == session_id]
 	if len(name_matches) == 1:
 		return name_matches[0]
 	if len(name_matches) > 1:

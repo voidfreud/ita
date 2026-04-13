@@ -1,5 +1,6 @@
 # src/_tab.py
 """Tab commands: new, close, activate, navigate, list, info, detach, move, profile, title."""
+import asyncio
 import json
 import click
 import iterm2
@@ -35,14 +36,13 @@ def tab_new(window_id, tab_name, profile):
 		window = app.get_window_by_id(window_id)
 		if not window:
 			raise ItaError("not-found", f"Window {window_id!r} not found.")
-		# Collect existing tab titles for naming decisions. Use async_get_variable
-		# on 'title' per the resolver's fresh-read discipline.
-		existing_titles: set[str] = set()
-		for w in app.terminal_windows:
-			for t in w.tabs:
-				title = await t.async_get_variable('title') or ''
-				if title:
-					existing_titles.add(strip_or(title))
+		# Collect existing tab titles for naming decisions. Parallel fetch
+		# (#301) — the prior serial loop paid one RPC per tab.
+		all_tabs = [t for w in app.terminal_windows for t in w.tabs]
+		titles = await asyncio.gather(
+			*(t.async_get_variable('title') for t in all_tabs)
+		) if all_tabs else []
+		existing_titles: set[str] = {strip_or(t) for t in titles if t}
 		# §2: explicit name collision → bad-args (never silent rename).
 		if tab_name and tab_name in existing_titles:
 			raise ItaError("bad-args",
