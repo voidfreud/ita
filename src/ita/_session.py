@@ -8,6 +8,19 @@ from ._core import (cli, run_iterm, resolve_session, strip, read_session_lines,
 	check_protected, _all_sessions, parse_filter, match_filter,
 	session_writelock, _SENTINEL_RE, _fresh_name)
 from ._envelope import ita_command, ItaError
+from ._lock import resolve_force_flags
+
+
+def _force_options(f):
+	"""Decorator stacking --force-protected / --force-lock / --force (deprecated).
+	See _send._force_options for shared semantics (#294)."""
+	f = click.option('--force', is_flag=True, hidden=True,
+		help='DEPRECATED: use --force-protected and/or --force-lock (#294).')(f)
+	f = click.option('--force-lock', is_flag=True,
+		help='Override write-lock guard; reclaim from another live ita process (#294).')(f)
+	f = click.option('--force-protected', is_flag=True,
+		help='Override protected-session guard (#294).')(f)
+	return f
 
 # `_fresh_name` lives in `_core.py` now (moved for #289 so resolve_session can
 # reach it without a circular import). Re-exported here so any caller still
@@ -195,16 +208,17 @@ def _reject_combo(session_id, where, all_flag):
 @click.option('--dry-run', is_flag=True, help='Print what would be closed without doing it')
 @click.option('--json', 'use_json', is_flag=True,
 			  help='Emit CONTRACT §4 envelope on stdout (single-session path only).')
-@click.option('--force', is_flag=True,
-			  help='Override protected-session guard (also required with --all to close protected).')
+@_force_options
 @ita_command(op='close')
-def close(session_id, filter_expr, all_flag, quiet, dry_run, use_json, force):
+def close(session_id, filter_expr, all_flag, quiet, dry_run, use_json,
+		  force_protected, force_lock, force):
 	"""Close a session (or many via --where / --all).
 
 	--json emits a CONTRACT §4 envelope on the single-session path. Bulk
 	paths (--where / --all) still produce plain per-member lines for now;
 	a future PR will give them stream-envelope semantics (§11)."""
 	from ._envelope import ItaError
+	fp, fl = resolve_force_flags(force, force_protected, force_lock)
 	if session_id is not None and not session_id.strip():
 		raise ItaError("bad-args", "--session cannot be empty")
 	bulk = bool(filter_expr or all_flag)
@@ -213,10 +227,10 @@ def close(session_id, filter_expr, all_flag, quiet, dry_run, use_json, force):
 		async def _run(connection):
 			nonlocal closed_id
 			session = await resolve_session(connection, session_id)
-			check_protected(session.session_id, force=force)
+			check_protected(session.session_id, force_protected=fp)
 			closed_id = session.session_id
 			if not dry_run:
-				with session_writelock(session.session_id, force=force):
+				with session_writelock(session.session_id, force_lock=fl):
 					await session.async_close(force=True)
 		run_iterm(_run)
 		if closed_id and not use_json:
@@ -243,21 +257,33 @@ def close(session_id, filter_expr, all_flag, quiet, dry_run, use_json, force):
 		pairs = await _session_records(connection)
 		if filter_expr:
 			pairs = [(s, r) for s, r in pairs if match_filter(r, key, op, value)]
-		protected = get_protected()
+		# #13 set-merge: dedupe by session_id so a session appearing twice
+		# (e.g. via overlapping domain iteration upstream) is closed once.
+		seen: set[str] = set()
+		deduped: list = []
 		for s, r in pairs:
-			if r['session_id'] in protected and not force:
+			if r['session_id'] in seen:
+				continue
+			seen.add(r['session_id'])
+			deduped.append((s, r))
+		protected = get_protected()
+		for s, r in deduped:
+			# #283: per-target protect check. Honored even in bulk paths.
+			if r['session_id'] in protected and not fp:
 				results['skipped'].append(r)
 				continue
 			results['closed'].append(r)
 			if not dry_run:
 				try:
-					# WARNING: bulk ops are not write-locked per-session.
-					# Acquiring session_writelock() inside an async loop would
-					# require switching to asyncio.Lock, which is a larger
-					# architectural change. Bulk close is inherently racy by
-					# design; callers should not rely on write-lock exclusion
-					# across --where / --all operations.
-					await s.async_close(force=True)
+					# #258: per-target writelock. A single bulk invocation
+					# still serializes against sibling ita processes on each
+					# member; concurrent members within THIS invocation run
+					# sequentially (fcntl.flock is synchronous).
+					with session_writelock(r['session_id'], force_lock=fl):
+						await s.async_close(force=True)
+				except ItaError:
+					# lock conflict → surface as a skip, not an abort.
+					results['skipped'].append(r)
 				except Exception:
 					# Best-effort bulk close — don't abort the whole batch on
 					# a transient per-session failure.
@@ -345,19 +371,19 @@ def name(title, session_id, filter_expr, all_flag, force, dry_run, quiet):
 @cli.command()
 @click.option('-s', '--session', 'session_id', default=None)
 @click.option('-q', '--quiet', is_flag=True, help='Suppress confirmation message')
-@click.option('--force', is_flag=True,
-	help='Override protected-session and write-lock guards.')
-def restart(session_id, quiet, force):
+@_force_options
+def restart(session_id, quiet, force_protected, force_lock, force):
 	"""Restart session. Prints new session ID (may differ after restart)."""
+	fp, fl = resolve_force_flags(force, force_protected, force_lock)
 	old_id = None
 	async def _run(connection):
 		nonlocal old_id
 		import asyncio
 		session = await resolve_session(connection, session_id)
-		check_protected(session.session_id, force=force)
+		check_protected(session.session_id, force_protected=fp)
 		old_id = session.session_id
 		tab_id = session.tab.tab_id if session.tab else None
-		with session_writelock(session.session_id, force=force):
+		with session_writelock(session.session_id, force_lock=fl):
 			await session.async_restart(only_if_exited=False)
 		# Wait briefly for iTerm2 to register the new session object
 		await asyncio.sleep(0.5)
@@ -445,9 +471,11 @@ def resize(cols, rows, session_id, force, dry_run, quiet):
 @click.option('--all', 'all_flag', is_flag=True, help='Apply to every session (#125).')
 @click.option('--dry-run', is_flag=True, help='Print what would be cleared without doing it.')
 @click.option('-q', '--quiet', is_flag=True, help='Suppress confirmation message')
-@click.option('--force', is_flag=True, help='Override write-lock guard (#109).')
-def clear_screen(session_id, filter_expr, all_flag, dry_run, quiet, force):
+@_force_options
+def clear_screen(session_id, filter_expr, all_flag, dry_run, quiet,
+				 force_protected, force_lock, force):
 	"""Clear session screen (Ctrl+L). Supports --where / --all for bulk."""
+	fp, fl = resolve_force_flags(force, force_protected, force_lock)
 	bulk = bool(filter_expr or all_flag)
 	if not bulk:
 		cleared_id = None
@@ -455,9 +483,9 @@ def clear_screen(session_id, filter_expr, all_flag, dry_run, quiet, force):
 			nonlocal cleared_id
 			session = await resolve_session(connection, session_id)
 			cleared_id = session.session_id
-			check_protected(session.session_id, force=force)
+			check_protected(session.session_id, force_protected=fp)
 			if not dry_run:
-				with session_writelock(session.session_id, force=force):
+				with session_writelock(session.session_id, force_lock=fl):
 					await session.async_send_text('\x0c')
 		run_iterm(_run)
 		if dry_run:
@@ -474,21 +502,32 @@ def clear_screen(session_id, filter_expr, all_flag, dry_run, quiet, force):
 		pairs = await _session_records(connection)
 		if filter_expr:
 			pairs = [(s, r) for s, r in pairs if match_filter(r, key, op, value)]
+		# §13 set-merge dedup.
+		seen: set[str] = set()
+		deduped = []
 		for s, r in pairs:
+			if r['session_id'] in seen:
+				continue
+			seen.add(r['session_id'])
+			deduped.append((s, r))
+		for s, r in deduped:
+			# #283: per-target protect check for bulk ops.
 			try:
-				check_protected(r['session_id'], force=force)
+				check_protected(r['session_id'], force_protected=fp)
 			except Exception as exc:
 				click.echo(f"Skipped {r['session_id'][:8]}…: {exc}", err=True)
 				continue
 			cleared.append(r)
 			if not dry_run:
-				# WARNING: bulk ops are not write-locked per-session.
-				# Acquiring session_writelock() inside an async loop would
-				# require switching to asyncio.Lock, which is a larger
-				# architectural change. Bulk clear is inherently racy by
-				# design; callers should not rely on write-lock exclusion
-				# across --where / --all operations.
-				await s.async_send_text('\x0c')
+				# #258: per-target writelock inside the bulk loop. fcntl
+				# serializes across processes; within this invocation
+				# members are cleared sequentially.
+				try:
+					with session_writelock(r['session_id'], force_lock=fl):
+						await s.async_send_text('\x0c')
+				except ItaError as exc:
+					click.echo(f"Skipped {r['session_id'][:8]}…: {exc.reason}", err=True)
+					cleared.pop()
 	run_iterm(_run_bulk)
 	verb = 'Would clear' if dry_run else 'Cleared'
 	for r in cleared:
