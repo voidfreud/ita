@@ -20,8 +20,8 @@ def test_window_new_returns_id():
 	assert r.returncode == 0
 	wid = r.stdout.strip()
 	assert wid, "window new should output a window ID"
-	# Clean up by closing the new window
-	ita('window', 'close', wid)
+	# Clean up by closing the new window (#340: --allow-window-close required).
+	ita('window', 'close', wid, '--allow-window-close')
 
 
 def test_window_new_bad_profile():
@@ -39,7 +39,7 @@ def test_window_close_no_args_rc2():
 
 @pytest.mark.error
 def test_window_close_unknown_id():
-	r = ita('window', 'close', 'no-such-window-id-xyz')
+	r = ita('window', 'close', 'no-such-window-id-xyz', '--allow-window-close')
 	assert r.returncode == 1
 	assert 'not found' in r.stderr.lower() or 'Window' in r.stderr
 
@@ -57,7 +57,7 @@ def test_window_close_actually_removes_window():
 	ids_before = {w['window_id'] for w in windows_before}
 	assert wid in ids_before, "new window not found in window list"
 
-	ita('window', 'close', wid)
+	ita('window', 'close', wid, '--allow-window-close')
 
 	r_list_after = ita('window', 'list', '--json')
 	assert r_list_after.returncode == 0
@@ -78,7 +78,7 @@ def test_window_close_quiet_flag():
 	r_new = ita('window', 'new')
 	assert r_new.returncode == 0
 	wid = r_new.stdout.strip()
-	r = ita('window', 'close', wid, '--quiet')
+	r = ita('window', 'close', wid, '--quiet', '--allow-window-close')
 	assert r.returncode == 0
 	assert 'Closing' not in r.stderr
 
