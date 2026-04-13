@@ -106,12 +106,21 @@ async def _has_shell_integration(session) -> bool:
 	"""Best-effort detection. iTerm2 shell integration sets the user variable
 	`user.iterm2_shell_integration_version` on session start. Absence of that
 	variable is a strong signal integration isn't loaded in the target session.
-	Returns True on error (caller should treat detection as advisory)."""
+
+	Fail-closed (#234): on any probe exception we return False. Claiming
+	integration exists when the probe itself failed would silently swallow
+	exit codes (agents would see `exit_code=null` with `shell_integration=
+	true`, an impossible combination). False is the safe advisory value —
+	the caller then uses the no-integration code path and surfaces
+	`shell_integration=false` honestly. A one-line debug warning is emitted
+	to stderr so the failure isn't fully invisible."""
 	try:
 		v = await session.async_get_variable('user.iterm2_shell_integration_version')
 		return bool(v)
-	except Exception:
-		return True  # fail-open: don't block run on a probe failure
+	except Exception as e:
+		click.echo(f"ita: shell-integration probe failed ({type(e).__name__}): "
+			f"treating as missing", err=True)
+		return False
 
 
 def _load_stdin_script(stdin_path: str, allow_outside_cwd: bool) -> str:
