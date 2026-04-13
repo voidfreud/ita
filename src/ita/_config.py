@@ -156,9 +156,16 @@ def var_list(scope, session_id, use_json):
 				w = app.current_terminal_window
 				target = w.current_tab if w else None
 			else:
-				target = await resolve_session(connection, session_id)
-				if target is None:
-					raise click.ClickException(f"Session not found: {session_id!r}")
+				# #287: when session scope is *explicitly requested* and no
+				# session can be resolved, surface the failure rather than
+				# silently degrading to empty (violates §14.1 "never lie to
+				# the caller"). When the user didn't name `--scope session`
+				# (default = all scopes) and there's no `-s`, skip the
+				# session scope rather than error — other scopes still work.
+				if scope == 'session' or session_id:
+					target = await resolve_session(connection, session_id)
+				else:
+					target = None
 			scope_vals = {}
 			if target is not None:
 				for name in _KNOWN_VARS[sc]:

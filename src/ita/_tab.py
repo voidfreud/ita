@@ -4,6 +4,7 @@ import json
 import click
 import iterm2
 from ._core import cli, run_iterm
+from ._envelope import ItaError
 
 
 @cli.group()
@@ -24,10 +25,12 @@ def tab_new(window_id, profile):
 			raise click.ClickException("No window available. Run 'ita window new' first.")
 		try:
 			new_tab = await window.async_create_tab(profile=profile)
-		except Exception as e:
-			if 'INVALID_PROFILE_NAME' in str(e):
-				raise click.ClickException(f"Profile not found: {profile!r}") from e
-			raise
+		except iterm2.CreateTabException as e:
+			# #322: structured check against the CreateTabResponse status name,
+			# not a substring of arbitrary output.
+			if str(e) == 'INVALID_PROFILE_NAME':
+				raise ItaError("bad-args", f"Profile not found: {profile!r}") from e
+			raise ItaError("bad-args", f"Could not create tab: {e}") from e
 		session = new_tab.current_session
 		return session.session_id
 	click.echo(run_iterm(_run))
@@ -52,38 +55,62 @@ def tab_close(tab_id, current):
 
 
 @tab.command('activate')
-@click.option('-t', '--tab', 'tab_id_opt', required=True, help='Tab UUID, index, or name')
+@click.option('-t', '--tab', 'tab_id_opt', required=True, help='Tab UUID, index, title, or 8+ char tab-id prefix.')
 def tab_activate(tab_id_opt):
+	"""Activate a tab. Resolution mirrors CONTRACT §2 session resolver:
+	exact tab_id → integer index (within the current window) → exact title
+	→ 8+ char tab_id prefix. Ambiguity is rc=6 (bad-args); nothing-found is
+	rc=2 (not-found). No fuzzy substring matching (#224)."""
 	resolved_id = tab_id_opt
 	async def _run(connection):
 		app = await iterm2.async_get_app(connection)
+		# 1. Exact tab_id match wins.
 		t = app.get_tab_by_id(resolved_id)
 		if t:
 			await t.async_activate(order_window_front=True)
 			return
+		# 2. Integer index (within the focused terminal window). Unambiguous
+		# by construction; kept separate from the name/prefix path.
 		try:
 			idx = int(resolved_id)
 			w = app.current_terminal_window
 			if not w or not (0 <= idx < len(w.tabs)):
-				raise click.ClickException(f"No tab at index {idx}")
+				raise ItaError("not-found", f"No tab at index {idx}")
 			await w.tabs[idx].async_activate(order_window_front=True)
 			return
 		except ValueError:
 			pass
-		async def _get_title(t):
-			return await t.async_get_variable('title') or ''
+		# 3. Exact title match (#224: previously did substring matching on
+		# tab_id despite the help text saying 'name'). Titles are fetched
+		# via async_get_variable; missing titles resolve to empty string.
 		import asyncio
-		titles = await asyncio.gather(*[_get_title(t) for w in app.windows for t in w.tabs])
-		all_tabs = [t for w in app.windows for t in w.tabs]
-		matches = [t for t, title in zip(all_tabs, titles) if resolved_id.lower() in title.lower()]
-		if not matches:
-			matches = [t for t in all_tabs if resolved_id.lower() in (t.tab_id or '').lower()]
-		if len(matches) == 1:
-			await matches[0].async_activate(order_window_front=True)
+		all_tabs = [t for w in app.terminal_windows for t in w.tabs]
+		async def _get_title(tab):
+			return (await tab.async_get_variable('title')) or ''
+		titles = await asyncio.gather(*[_get_title(t) for t in all_tabs])
+		title_matches = [t for t, title in zip(all_tabs, titles) if title == resolved_id]
+		if len(title_matches) == 1:
+			await title_matches[0].async_activate(order_window_front=True)
 			return
-		if len(matches) > 1:
-			raise click.ClickException(f"Multiple tabs match {resolved_id!r}; be more specific")
-		raise click.ClickException(f"Tab {resolved_id!r} not found (tried UUID, index, and name)")
+		if len(title_matches) > 1:
+			ids = ', '.join((t.tab_id or '')[:8] for t in title_matches)
+			raise ItaError("bad-args",
+				f"tab title {resolved_id!r} is ambiguous — matches: {ids}. "
+				f"Use the exact tab_id or an 8+ char prefix.")
+		# 4. 8+ char tab_id prefix, case-insensitive. Below the floor is
+		# treated as not-found, matching the session resolver.
+		if len(resolved_id) >= 8:
+			needle = resolved_id.lower()
+			prefix_matches = [t for t in all_tabs if (t.tab_id or '').lower().startswith(needle)]
+			if len(prefix_matches) == 1:
+				await prefix_matches[0].async_activate(order_window_front=True)
+				return
+			if len(prefix_matches) > 1:
+				ids = ', '.join((t.tab_id or '')[:8] for t in prefix_matches)
+				raise ItaError("bad-args",
+					f"tab prefix {resolved_id!r} is ambiguous — matches: {ids}.")
+		raise ItaError("not-found",
+			f"Tab {resolved_id!r} not found (tried tab_id, index, title, prefix).")
 	run_iterm(_run)
 
 
@@ -134,7 +161,7 @@ def tab_list(use_json, ids_only):
 	async def _run(connection):
 		app = await iterm2.async_get_app(connection)
 		return [{'tab_id': t.tab_id, 'window_id': w.window_id, 'panes': len(t.sessions)}
-				for w in app.windows for t in w.tabs]
+				for w in app.terminal_windows for t in w.tabs]
 	tabs = run_iterm(_run)
 	if ids_only:
 		for t in tabs:
@@ -230,9 +257,14 @@ def tab_profile(profile_name, tab_id):
 		for session in t.sessions:
 			try:
 				await session.async_set_profile(profile_name)
-			except Exception as e:
-				if 'INVALID_PROFILE_NAME' in str(e):
-					raise click.ClickException(f"Profile not found: {profile_name!r}") from e
+			except iterm2.rpc.RPCException as e:
+				# #322: session.async_set_profile surfaces invalid profile via
+				# RPCException whose message is the protobuf status-enum name.
+				# Check equality on that structured value, never `in` on an
+				# opaque message (which would mis-catch any unrelated RPC).
+				if str(e) == 'INVALID_PROFILE_NAME':
+					raise ItaError("bad-args",
+						f"Profile not found: {profile_name!r}") from e
 				raise
 	run_iterm(_run)
 

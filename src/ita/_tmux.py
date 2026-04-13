@@ -99,7 +99,7 @@ def tmux_windows(output_json):
 	async def _run(connection):
 		app = await iterm2.async_get_app(connection)
 		rows = []
-		for window in app.windows:
+		for window in app.terminal_windows:
 			for tab in window.tabs:
 				wid = tab.tmux_window_id
 				if not wid:

@@ -340,7 +340,7 @@ def coprocess_list():
 	async def _run(connection):
 		app = await iterm2.async_get_app(connection)
 		found = []
-		for window in app.windows:
+		for window in app.terminal_windows:
 			for tab in window.tabs:
 				for session in tab.sessions:
 					cp = await session.async_get_coprocess()
