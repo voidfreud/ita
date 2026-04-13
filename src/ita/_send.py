@@ -377,6 +377,35 @@ def send(text, raw, no_newline, session_id, force_protected, force_lock, force):
 	run_iterm(_run)
 
 
+def _encode_inject_payload(data: str, is_hex: bool) -> bytes:
+	"""Pure encoder for `ita inject`. Returns the raw bytes to hand to
+	`session.async_inject`, or raises `ItaError("bad-args", ...)` (rc=6).
+
+	Contract (#229, CONTRACT §14.2):
+	- Text mode is UTF-8 end-to-end. Every valid Unicode codepoint survives
+	  verbatim: emoji and other astral-plane chars (>U+FFFF), CJK, combining
+	  marks, RTL, etc. No silent replacement or truncation.
+	- `errors='strict'` means lone surrogates (U+D800..U+DFFF that leaked in
+	  via `surrogateescape` or similar) fail loudly rather than being mangled.
+	- Hex mode requires two-char pairs (spaces allowed); empty string is a no-op
+	  (returns `b''` which the caller treats as "nothing to send")."""
+	if is_hex:
+		normalized = data.replace(' ', '')
+		if not normalized:
+			return b''
+		try:
+			return bytes.fromhex(normalized)
+		except ValueError as e:
+			raise ItaError("bad-args",
+				f"invalid hex data: {data!r}. Use two-character pairs (e.g. '03' for Ctrl+C).") from e
+	try:
+		return data.encode('utf-8', errors='strict')
+	except (UnicodeDecodeError, UnicodeEncodeError) as e:
+		raise ItaError("bad-args",
+			f"cannot encode input as UTF-8 ({e}). "
+			f"Use --hex for raw bytes (e.g. `ita inject --hex 71` for 'q').") from e
+
+
 @cli.command()
 @click.argument('data')
 @click.option('--hex', 'is_hex', is_flag=True, help='Interpret DATA as hex bytes')
@@ -384,35 +413,21 @@ def send(text, raw, no_newline, session_id, force_protected, force_lock, force):
 @_force_options
 def inject(data, is_hex, session_id, force_protected, force_lock, force):
 	"""Inject raw bytes into the terminal emulator's output stream (display side).
-	For sending input to a running process (Ctrl+C, arrow keys, etc.) use 'ita key' instead."""
+	For sending input to a running process (Ctrl+C, arrow keys, etc.) use 'ita key' instead.
+
+	Text mode is UTF-8 end-to-end (full Unicode, including astral-plane codepoints
+	like emoji). Un-encodable input (lone surrogates) fails with rc=6 `bad-args`
+	rather than silently mangling the payload (#229, CONTRACT §14.2)."""
+	# Encode up-front so invalid input fails before we touch iTerm2 (no
+	# partial-write or lock-acquire side effects on bad-args).
+	raw = _encode_inject_payload(data, is_hex)
 	fp, fl = resolve_force_flags(force, force_protected, force_lock)
 	async def _run(connection):
 		session = await resolve_session(connection, session_id)
 		check_protected(session.session_id, force_protected=fp)
-		# acquire writelock before encoding so a concurrent write sees the lock
-		# immediately (encoding may raise — that's fine, __exit__ releases).
 		with session_writelock(session.session_id, force_lock=fl):
-			await _inject_impl(session, data, is_hex)
-
-	async def _inject_impl(session, data, is_hex):
-		if is_hex:
-			normalized = data.replace(' ', '')
-			if not normalized:
-				return  # empty hex string is a no-op
-			try:
-				raw = bytes.fromhex(normalized)
-			except ValueError as e:
-				raise click.ClickException(
-					f"Invalid hex data: {data!r}. Use two-character pairs (e.g. '03' for Ctrl+C).") from e
-		else:
-			try:
-				raw = data.encode('utf-8')
-			except (UnicodeDecodeError, UnicodeEncodeError) as e:
-				raise click.ClickException(
-					f"Cannot encode {data!r}: {e}. "
-					f"Use --hex for raw bytes (e.g. `ita inject --hex 71` for 'q')."
-				) from e
-		await session.async_inject(raw)
+			if raw:
+				await session.async_inject(raw)
 	run_iterm(_run)
 
 
