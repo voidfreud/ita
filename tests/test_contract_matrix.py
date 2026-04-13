@@ -39,6 +39,7 @@ from _contract_helpers import (
 	invoke,
 	invoke_json,
 	invoke_subprocess,
+	seeded_protection,
 	split_path,
 )
 
@@ -248,19 +249,122 @@ def test_rule3_rc_matches_envelope_on_ghost_target(cmd: str):
 
 
 # ── Rule 4: protection / lock / path-trust ─────────────────────────────────
-# These need a live session to meaningfully exercise. Mark integration.
+# Driven fast-lane-style via ``seeded_protection``: resolve_session is
+# short-circuited by a faked ``iterm2.async_get_app`` so every mutator in
+# ``TARGET_TAKERS`` reaches its real ``check_protected`` call against a
+# ghost SID seeded into the protected set. The raise travels back out as
+# ``ItaError("protected", …)`` → rc=3 with envelope.error.code='protected'
+# when --json is passed.
+#
+# Mutators that don't take a target (`broadcast send`, `tmux start`,
+# `new`, `app quit`, …) are skipped: no session identity = no
+# per-session protection check. Rule 4 is tested against them via the
+# lock / path-trust sub-rules elsewhere in this module.
+#
+# Candidate-bug handling: per
+# ``test_invariant_mutators_honor_protection.py``, several mutators are
+# known not to call ``check_protected`` yet (#283 / theme / profile ops /
+# tmux start / broadcast ops). The matrix xfails those cells with
+# strict=False so today's skip-count shrinks without requiring bug fixes
+# to land first; the day a fix lands the xfail flips to an XPASS and
+# surfaces the improvement.
 
-@pytest.mark.integration
+# Minimal positional-argv map — mirrors the table used for rule 3 so the
+# rule-4 cells can construct a well-formed CLI invocation that reaches
+# the callback. Keyed by leaf command name.
+_RULE4_POSITIONAL: dict[str, list[str]] = {
+	"run":            ["echo", "x"],
+	"send":           ["x"],
+	"inject":         ["x"],
+	"key":            ["ctrl+c"],
+	"name":           ["renamed"],
+	"annotate":       ["note"],
+	"tab title":      ["t"],
+	"window title":   ["t"],
+	"var set":        ["foo", "bar"],
+	"tab profile":    ["Default"],
+	"profile apply":  ["Default"],
+	"profile set":    ["Normal Font", "Monaco 12"],
+	"resize":         ["--rows", "24", "--cols", "80"],
+	"copy":           ["hello"],
+}
+
+# Canonical wired set — the mutators whose callback source contains a
+# ``check_protected(...)`` call (verified by AST scan of src/ita/*.py).
+# Keep this list explicit: when a bug-fix PR adds `check_protected` to a
+# new mutator, add its name here and the rule-4 matrix immediately
+# upgrades from xfail → assertion.
+_RULE4_WIRED: frozenset[str] = frozenset({
+	"run", "send", "inject", "key",
+	"close", "restart", "clear",
+})
+
+# Everything in MUTATORS & TARGET_TAKERS that's NOT in _RULE4_WIRED is
+# a candidate bug (tracked alongside _UNPROTECTED_MUTATORS in
+# tests/test_invariant_mutators_honor_protection.py). We xfail those
+# cells with strict=False so the count is visible but doesn't fail the
+# suite today; the day a command gains check_protected and lands in
+# _RULE4_WIRED, its cell flips to a real passing assertion.
+
+RULE4_TARGETED_MUTATORS = sorted(set(MUTATORS) & TARGET_TAKERS)
+
+
 @pytest.mark.parametrize("cmd", MUTATORS, ids=_id)
-def test_rule4_mutator_honors_protection(cmd: str, session):  # noqa: ARG001
-	"""§14.4: every mutator refuses to act on a protected session unless
-	the opt-out flag is passed. Deferred to the integration lane because
-	it requires a live target; matrix cell exists so gaps are visible."""
-	pytest.skip(
-		f"rule 4 protection matrix for {cmd} — covered by existing integration "
-		f"tests (test_invariant_mutators_honor_protection.py); this cell is a "
-		f"matrix placeholder. TODO(#292): wire full parametrized coverage."
+def test_rule4_mutator_honors_protection(cmd: str):
+	"""§14.4: every target-taking mutator raises ItaError("protected") /
+	rc=3 when driven against a protected session without --force-protected.
+
+	Fast-lane: ``seeded_protection`` stubs the iterm2 singleton so the
+	command's real ``resolve_session`` → ``check_protected`` path runs
+	in-process. Non-target mutators are skipped (no per-session identity)."""
+	if cmd not in TARGET_TAKERS:
+		pytest.skip(
+			f"{cmd} takes no session target — per-session protection "
+			f"does not apply. Rule-4 coverage for group/app-wide mutators "
+			f"lives under lock/path-trust sub-rules."
+		)
+	if "streaming" in CATEGORIES[cmd]:
+		pytest.skip(f"{cmd} is streaming — covered under integration lane")
+	if cmd not in _RULE4_WIRED:
+		pytest.xfail(
+			f"{cmd}: does not call check_protected() yet — candidate bug "
+			f"tracked in test_invariant_mutators_honor_protection.py. "
+			f"Will flip to a real assertion once the fix lands and "
+			f"{cmd} is added to _RULE4_WIRED."
+		)
+	extra = _RULE4_POSITIONAL.get(cmd, [])
+	with seeded_protection(GHOST_SID):
+		r = invoke(*split_path(cmd), "-s", GHOST_SID, *extra, timeout=10)
+	assert r.returncode == 3, (
+		f"§14.4: {cmd} did not exit rc=3 (protected); got rc={r.returncode}\n"
+		f"stdout: {r.stdout[:400]!r}\nstderr: {r.stderr[:400]!r}"
 	)
+
+
+@pytest.mark.parametrize("cmd", RULE4_TARGETED_MUTATORS, ids=_id)
+def test_rule4_protection_envelope_shape(cmd: str):
+	"""§14.4 + §4: when --json is passed alongside protection failure, the
+	envelope carries ok=false and error.code='protected'."""
+	if "streaming" in CATEGORIES[cmd]:
+		pytest.skip(f"{cmd} is streaming — covered under integration lane")
+	if cmd not in _RULE4_WIRED:
+		pytest.xfail(
+			f"{cmd}: does not call check_protected() yet — candidate bug"
+		)
+	extra = _RULE4_POSITIONAL.get(cmd, [])
+	with seeded_protection(GHOST_SID):
+		r, env = invoke_json(*split_path(cmd), "-s", GHOST_SID, *extra, timeout=10)
+	if env is None:
+		# Command doesn't accept --json (Click NoSuchOption fires before the
+		# callback runs). Envelope check is N/A; rc assertion above already
+		# covers the rule-4 invariant.
+		pytest.skip(f"{cmd} does not accept --json — envelope assertion N/A")
+	assert env.get("ok") is False, f"§14.4: {cmd} envelope ok!=false"
+	err = env.get("error") or {}
+	assert err.get("code") == "protected", (
+		f"§14.4: {cmd} envelope error.code={err.get('code')!r} != 'protected'"
+	)
+	assert r.returncode == 3, f"§14.3+§14.4: {cmd} rc={r.returncode} != 3"
 
 
 # Path-trust sub-rule (§14.4, #325). Fast-lane-safe because validation
