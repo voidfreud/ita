@@ -23,6 +23,12 @@ def main():
 	def _argv_uses_json() -> bool:
 		return any(a in ("--json", "--as-json") for a in _sys.argv[1:])
 
+	# CONTRACT §10 "Auto-protect the Claude Code session (#340)": run once
+	# per process before cli() dispatches. Best-effort — any failure is
+	# swallowed inside the helper; command dispatch is never blocked.
+	from ._claudecode import auto_protect_claudecode_session
+	auto_protect_claudecode_session()
+
 	try:
 		cli(standalone_mode=False)
 	except ItaError as e:

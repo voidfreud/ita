@@ -155,7 +155,7 @@ def test_move_pane_to_new_window(session):
 		r_move = ita('move', '-s', split_sid, '-w', new_wid)
 		assert r_move.returncode == 0
 	finally:
-		ita('window', 'close', new_wid)
+		ita('window', 'close', new_wid, '--allow-window-close')
 		# split_sid may be gone with window; ignore error
 		ita('close', '-s', split_sid)
 

@@ -39,7 +39,9 @@ def tab_new(window_id, profile):
 @tab.command('close')
 @click.argument('tab_id', required=False)
 @click.option('--current', '-c', is_flag=True, help='Close the currently active tab')
-def tab_close(tab_id, current):
+@click.option('--allow-window-close', is_flag=True,
+	help='Permit close that would cascade-close the window (CONTRACT §10, #340).')
+def tab_close(tab_id, current, allow_window_close):
 	"""Close a tab by ID, or use --current to close the active tab."""
 	if not tab_id and not current:
 		raise click.UsageError(
@@ -50,6 +52,14 @@ def tab_close(tab_id, current):
 			app.current_terminal_window.current_tab if app.current_terminal_window else None)
 		if not t:
 			raise click.ClickException("Tab not found")
+		# CONTRACT §10 "Last-tab cascade is refused (#340)": never silently
+		# take the window down with the tab.
+		from ._cascade import tab_close_would_cascade_window
+		if not allow_window_close and tab_close_would_cascade_window(t):
+			raise ItaError("bad-args",
+				f"Closing tab {t.tab_id} would also close its window "
+				f"(last tab in window). Pass --allow-window-close to proceed "
+				f"(CONTRACT §10, #340).")
 		await t.async_close(force=True)
 	run_iterm(_run)
 
