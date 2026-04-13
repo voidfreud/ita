@@ -9,29 +9,35 @@ removed — see issue #138.
 import click
 import iterm2
 from ._core import cli, run_iterm
+from ._envelope import ItaError
 
 
 # ── Arrangements ──────────────────────────────────────────────────────────
 
 @cli.command()
 @click.argument('name')
-@click.option('--window', 'window_only', is_flag=True, help='Save current window only')
+@click.option('--window', 'window_id', default=None,
+	help='Save only this window (WINDOW_ID). Required for window-only save — '
+		 'no focus fallback (CONTRACT §2, #342).')
 @click.option('--force', '-f', is_flag=True, help='Overwrite existing arrangement without warning')
-def save(name, window_only, force):
-	"""Save current layout as named arrangement."""
+def save(name, window_id, force):
+	"""Save layout as named arrangement. With --window, saves only that
+	window; without, saves the whole app. Per CONTRACT §2 "Focus-fallback is
+	forbidden (#342)", --window takes an explicit WINDOW_ID (not a
+	`current_terminal_window` fallback)."""
 	if not name.strip():
-		raise click.ClickException("Name cannot be empty")
+		raise ItaError("bad-args", "Name cannot be empty")
 	async def _run(connection):
 		if not force:
 			existing = await iterm2.Arrangement.async_list(connection)
 			if name in (existing or []):
-				raise click.ClickException(
+				raise ItaError("bad-args",
 					f"Arrangement {name!r} already exists. Use --force to overwrite.")
-		if window_only:
+		if window_id:
 			app = await iterm2.async_get_app(connection)
-			w = app.current_terminal_window
+			w = app.get_window_by_id(window_id)
 			if not w:
-				raise click.ClickException("No current window — cannot save window layout.")
+				raise ItaError("not-found", f"Window {window_id!r} not found.")
 			await w.async_save_window_as_arrangement(name)
 		else:
 			await iterm2.Arrangement.async_save(connection, name)

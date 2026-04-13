@@ -42,21 +42,33 @@ _BUILTIN_VAR_NAMES = frozenset(
 @click.argument('name')
 @click.option('--scope', type=click.Choice(['session', 'tab', 'window', 'app']), default='session')
 @click.option('-s', '--session', 'session_id', default=None)
+@click.option('--tab', 'tab_id', default=None, help='Tab ID for --scope tab (required; no focus fallback, #342).')
+@click.option('--window', 'window_id', default=None, help='Window ID for --scope window (required; no focus fallback, #342).')
 @click.option('--json', 'use_json', is_flag=True, help='Emit {name, value, scope} as JSON (#142).')
-def var_get(name, scope, session_id, use_json):
+def var_get(name, scope, session_id, tab_id, window_id, use_json):
 	if not name.startswith('user.') and '.' not in name and name not in _BUILTIN_VAR_NAMES:
 		name = f'user.{name}'
+	# CONTRACT §2 "Focus-fallback is forbidden, end of (#342)": window/tab
+	# scopes require an explicit reference; previously fell back to
+	# app.current_terminal_window.
+	if scope == 'window' and not window_id:
+		raise ItaError("bad-args", "--scope window requires --window WINDOW_ID (#342).")
+	if scope == 'tab' and not tab_id:
+		raise ItaError("bad-args", "--scope tab requires --tab TAB_ID (#342).")
 	async def _run(connection):
 		app = await iterm2.async_get_app(connection)
 		if scope == 'app':
 			return await app.async_get_variable(name)
 		elif scope == 'window':
-			w = app.current_terminal_window
-			return await w.async_get_variable(name) if w else None
+			w = app.get_window_by_id(window_id)
+			if not w:
+				raise ItaError("not-found", f"Window {window_id!r} not found.")
+			return await w.async_get_variable(name)
 		elif scope == 'tab':
-			w = app.current_terminal_window
-			t = w.current_tab if w else None
-			return await t.async_get_variable(name) if t else None
+			t = app.get_tab_by_id(tab_id)
+			if not t:
+				raise ItaError("not-found", f"Tab {tab_id!r} not found.")
+			return await t.async_get_variable(name)
 		else:
 			session = await resolve_session(connection, session_id)
 			return await session.async_get_variable(name)
@@ -72,18 +84,25 @@ def var_get(name, scope, session_id, use_json):
 @click.argument('value')
 @click.option('--scope', type=click.Choice(['session', 'tab', 'window', 'app']), default='session')
 @click.option('-s', '--session', 'session_id', default=None)
+@click.option('--tab', 'tab_id', default=None, help='Tab ID for --scope tab (required; no focus fallback, #342).')
+@click.option('--window', 'window_id', default=None, help='Window ID for --scope window (required; no focus fallback, #342).')
 @click.option('-q', '--quiet', is_flag=True, help='Suppress confirmation (#139).')
 @click.option('--dry-run', is_flag=True, help='Print what would be set without doing it (#143).')
 @click.option('--confirm', is_flag=True, help='Require confirmation before mutating (#143).')
 @click.option('-y', '--yes', is_flag=True, help='Skip confirmation prompt (#143).')
 @click.option('--json', 'use_json', is_flag=True, help='Emit {ok, name, scope} as JSON (#142).')
-def var_set(name, value, scope, session_id, quiet, dry_run, confirm, yes, use_json):
+def var_set(name, value, scope, session_id, tab_id, window_id, quiet, dry_run, confirm, yes, use_json):
 	"""Set a variable. iTerm2 requires custom variables to use the 'user.' prefix;
 	it is added automatically if not present."""
 	if not name.strip():
-		raise click.ClickException("Variable name is required")
+		raise ItaError("bad-args", "Variable name is required")
 	if not name.startswith('user.') and '.' not in name and name not in _BUILTIN_VAR_NAMES:
 		name = f'user.{name}'
+	# CONTRACT §2 "Focus-fallback is forbidden, end of (#342)".
+	if scope == 'window' and not window_id:
+		raise ItaError("bad-args", "--scope window requires --window WINDOW_ID (#342).")
+	if scope == 'tab' and not tab_id:
+		raise ItaError("bad-args", "--scope tab requires --tab TAB_ID (#342).")
 	msg = f"set {scope} variable {name} = {value!r}"
 	if dry_run:
 		click.echo(f"Would: {msg}")
@@ -95,14 +114,15 @@ def var_set(name, value, scope, session_id, quiet, dry_run, confirm, yes, use_js
 		if scope == 'app':
 			await app.async_set_variable(name, value)
 		elif scope == 'window':
-			w = app.current_terminal_window
-			if w:
-				await w.async_set_variable(name, value)
+			w = app.get_window_by_id(window_id)
+			if not w:
+				raise ItaError("not-found", f"Window {window_id!r} not found.")
+			await w.async_set_variable(name, value)
 		elif scope == 'tab':
-			w = app.current_terminal_window
-			t = w.current_tab if w else None
-			if t:
-				await t.async_set_variable(name, value)
+			t = app.get_tab_by_id(tab_id)
+			if not t:
+				raise ItaError("not-found", f"Tab {tab_id!r} not found.")
+			await t.async_set_variable(name, value)
 		else:
 			session = await resolve_session(connection, session_id)
 			await session.async_set_variable(name, value)
@@ -139,10 +159,19 @@ _KNOWN_VARS = {
 @click.option('--scope', type=click.Choice(['session', 'tab', 'window', 'app']),
 			  default=None, help='Limit to one scope (default: all scopes).')
 @click.option('-s', '--session', 'session_id', default=None)
+@click.option('--tab', 'tab_id', default=None, help='Tab ID; required if --scope tab (#342).')
+@click.option('--window', 'window_id', default=None, help='Window ID; required if --scope window (#342).')
 @click.option('--json', 'use_json', is_flag=True)
-def var_list(scope, session_id, use_json):
+def var_list(scope, session_id, tab_id, window_id, use_json):
 	"""List variables by probing well-known iTerm2 built-ins. iTerm2's API has
 	no enumeration primitive, so custom 'user.*' variables are not discoverable."""
+	# CONTRACT §2 "Focus-fallback is forbidden, end of (#342)": when the user
+	# explicitly names --scope window / --scope tab, require a matching
+	# explicit reference; no silent fallback to current_terminal_window.
+	if scope == 'window' and not window_id:
+		raise ItaError("bad-args", "--scope window requires --window WINDOW_ID (#342).")
+	if scope == 'tab' and not tab_id:
+		raise ItaError("bad-args", "--scope tab requires --tab TAB_ID (#342).")
 	scopes = [scope] if scope else ['session', 'tab', 'window', 'app']
 
 	async def _run(connection):
@@ -153,10 +182,18 @@ def var_list(scope, session_id, use_json):
 			if sc == 'app':
 				target = app
 			elif sc == 'window':
-				target = app.current_terminal_window
+				# Default (scope unset): skip window scope if no explicit ref —
+				# silent focus fallback is forbidden. Mirror of the session
+				# branch's #287 treatment.
+				if window_id:
+					target = app.get_window_by_id(window_id)
+				else:
+					target = None
 			elif sc == 'tab':
-				w = app.current_terminal_window
-				target = w.current_tab if w else None
+				if tab_id:
+					target = app.get_tab_by_id(tab_id)
+				else:
+					target = None
 			else:
 				# #287: when session scope is *explicitly requested* and no
 				# session can be resolved, surface the failure rather than
@@ -407,7 +444,14 @@ def broadcast_on(session_id, window_id, replace, quiet, dry_run, confirm, yes):
 	By default merges into existing broadcast domains rather than replacing them
 	(#103) — prevents silent data loss when adding a session to an active
 	broadcast group. Pass --replace for the old atomic-replace behavior."""
-	target = session_id or window_id or 'current window'
+	# CONTRACT §2 "Focus-fallback is forbidden, end of (#342)": require an
+	# explicit -s or --window; the previous `app.current_terminal_window`
+	# fallback is gone.
+	if not session_id and not window_id:
+		raise ItaError("bad-args",
+			"no target specified. Use -s SESSION or --window WINDOW_ID. "
+			"Focus-fallback is forbidden (CONTRACT §2, #342).")
+	target = session_id or window_id
 	msg = f"enable broadcast on {target}"
 	if dry_run:
 		click.echo(f"Would: {msg}")
@@ -432,9 +476,9 @@ def broadcast_on(session_id, window_id, replace, quiet, dry_run, confirm, yes):
 				domains = [d]
 			await iterm2.async_set_broadcast_domains(connection, domains)
 		else:
-			w = app.get_window_by_id(window_id) if window_id else app.current_terminal_window
+			w = app.get_window_by_id(window_id)
 			if not w:
-				raise click.ClickException("No window context. Specify --window or a session.")
+				raise ItaError("not-found", f"Window {window_id!r} not found.")
 			new_domain = iterm2.BroadcastDomain()
 			for tab in w.tabs:
 				for sess in tab.sessions:

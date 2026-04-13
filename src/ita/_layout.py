@@ -47,30 +47,23 @@ def window_new(window_name, profile):
 
 
 @window.command('close')
-@click.argument('window_id', required=False)
-@click.option('--force', is_flag=True, help='Close current window without requiring WINDOW_ID')
+@click.argument('window_id', required=True)
 @click.option('-q', '--quiet', is_flag=True, help='Suppress confirmation (#139).')
 @click.option('--dry-run', is_flag=True, help='Print what would be closed (#143).')
 @click.option('--confirm', is_flag=True, help='Require confirmation (#143).')
 @click.option('-y', '--yes', is_flag=True, help='Skip confirmation prompt (#143).')
 @click.option('--allow-window-close', is_flag=True,
 	help='Required to actually close a window (CONTRACT §10, #340).')
-def window_close(window_id, force, quiet, dry_run, confirm, yes, allow_window_close):
-	"""Close a window. WINDOW_ID is required unless --force is passed.
-
-	Per CONTRACT §10 (#340), closing a window is destructive enough that it
-	requires an explicit opt-in: pass --allow-window-close or the command
-	errors with rc=6 (bad-args). Dry-run is exempt (it closes nothing)."""
-	if not window_id and not force:
-		raise click.UsageError(
-			"WINDOW_ID required (or pass --force to close the current window)")
+def window_close(window_id, quiet, dry_run, confirm, yes, allow_window_close):
+	"""Close WINDOW_ID. WINDOW_ID is required — CONTRACT §2 "Focus-fallback is
+	forbidden (#342)". Also requires --allow-window-close per CONTRACT §10
+	(#340); dry-run exempt."""
 	if not allow_window_close and not dry_run:
 		raise ItaError("bad-args",
 			"`ita window close` requires --allow-window-close "
 			"(CONTRACT §10, #340). Closing a window can take down the "
 			"Claude Code session driving ita; explicit opt-in required.")
-	target = window_id or 'current window'
-	msg = f"close window {target}"
+	msg = f"close window {window_id}"
 	if dry_run:
 		click.echo(f"Would: {msg}")
 		return
@@ -78,10 +71,9 @@ def window_close(window_id, force, quiet, dry_run, confirm, yes, allow_window_cl
 		return
 	async def _run(connection):
 		app = await iterm2.async_get_app(connection)
-		w = app.get_window_by_id(window_id) if window_id else app.current_terminal_window
+		w = app.get_window_by_id(window_id)
 		if not w:
-			raise click.ClickException(
-				f"Window {window_id!r} not found" if window_id else "No current window")
+			raise ItaError("not-found", f"Window {window_id!r} not found.")
 		session_count = sum(len(t.sessions) for t in w.tabs)
 		if not quiet:
 			click.echo(f"Closing window with {len(w.tabs)} tab(s), {session_count} session(s).", err=True)
@@ -90,27 +82,31 @@ def window_close(window_id, force, quiet, dry_run, confirm, yes, allow_window_cl
 
 
 @window.command('activate')
-@click.argument('window_id', required=False)
+@click.argument('window_id', required=True)
 def window_activate(window_id):
+	"""Activate WINDOW_ID. Required — CONTRACT §2 "Focus-fallback is forbidden
+	(#342)". §2 exception: command *about* focus; target still explicit."""
 	async def _run(connection):
 		app = await iterm2.async_get_app(connection)
-		w = app.get_window_by_id(window_id) if window_id else app.current_terminal_window
+		w = app.get_window_by_id(window_id)
 		if not w:
-			raise click.ClickException(
-				f"Window {window_id!r} not found" if window_id else "No current window")
+			raise ItaError("not-found", f"Window {window_id!r} not found.")
 		await w.async_activate()
 	run_iterm(_run)
 
 
 @window.command('title')
 @click.argument('title', required=False)
-def window_title(title):
-	"""Get current window title, or set it if TITLE provided."""
+@click.option('--window', 'window_id', required=True,
+	help='Window to get/set title on. REQUIRED — no focus fallback (#342).')
+def window_title(title, window_id):
+	"""Get WINDOW's title, or set it if TITLE provided. --window required —
+	CONTRACT §2 "Focus-fallback is forbidden (#342)"."""
 	async def _run(connection):
 		app = await iterm2.async_get_app(connection)
-		w = app.current_terminal_window
+		w = app.get_window_by_id(window_id)
 		if not w:
-			raise click.ClickException("No active window")
+			raise ItaError("not-found", f"Window {window_id!r} not found.")
 		if title is None:
 			val = await w.async_get_variable('titleOverride') or await w.async_get_variable('title')
 			return val or ''
@@ -123,12 +119,16 @@ def window_title(title):
 
 @window.command('fullscreen')
 @click.argument('mode', type=click.Choice(['on', 'off', 'toggle']), default='toggle', required=False)
-def window_fullscreen(mode):
+@click.option('--window', 'window_id', required=True,
+	help='Window to toggle. REQUIRED — no focus fallback (#342).')
+def window_fullscreen(mode, window_id):
+	"""Toggle fullscreen on WINDOW. --window required — CONTRACT §2
+	"Focus-fallback is forbidden (#342)"."""
 	async def _run(connection):
 		app = await iterm2.async_get_app(connection)
-		w = app.current_terminal_window
+		w = app.get_window_by_id(window_id)
 		if not w:
-			return
+			raise ItaError("not-found", f"Window {window_id!r} not found.")
 		current = await w.async_get_fullscreen()
 		target = {'on': True, 'off': False, 'toggle': not current}[mode]
 		await w.async_set_fullscreen(target)
@@ -140,13 +140,16 @@ def window_fullscreen(mode):
 @click.option('--y', type=float, default=None)
 @click.option('--w', 'width', type=float, default=None)
 @click.option('--h', 'height', type=float, default=None)
-def window_frame(x, y, width, height):
-	"""Get window position/size. Pass --x/y/w/h to set."""
+@click.option('--window', 'window_id', required=True,
+	help='Window to read/set frame on. REQUIRED — no focus fallback (#342).')
+def window_frame(x, y, width, height, window_id):
+	"""Get WINDOW position/size. Pass --x/y/w/h to set. --window required —
+	CONTRACT §2 "Focus-fallback is forbidden (#342)"."""
 	async def _run(connection):
 		app = await iterm2.async_get_app(connection)
-		win = app.current_terminal_window
+		win = app.get_window_by_id(window_id)
 		if not win:
-			raise click.ClickException("No window")
+			raise ItaError("not-found", f"Window {window_id!r} not found.")
 		if any(v is not None for v in [x, y, width, height]):
 			cur = await win.async_get_frame()
 			frame = iterm2.util.Frame(
