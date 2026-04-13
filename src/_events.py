@@ -58,14 +58,16 @@ def on_output(pattern, timeout, session_id, use_json):
 @click.option('--json', 'use_json', is_flag=True, help='Emit {"line": ...} instead of plain text.')
 def on_prompt(timeout, session_id, use_json):
 	"""Block until next shell prompt appears."""
+	import time as _time
 	async def _run(connection):
+		t0 = asyncio.get_running_loop().time()
 		session = await resolve_session(connection, session_id)
 		contents = await session.async_get_screen_contents()
 		last_idx = last_non_empty_index(contents)
 		if last_idx >= 0:
 			last = strip(contents.line(last_idx).string).strip()
 			if any(last.startswith(p) or last.endswith(p) for p in PROMPT_CHARS):
-				return last
+				return (True, last, int((asyncio.get_running_loop().time() - t0) * 1000))
 		async with session.get_screen_streamer() as streamer:
 			for _ in range(timeout):
 				try:
@@ -75,15 +77,28 @@ def on_prompt(timeout, session_id, use_json):
 						continue
 					last = strip(contents.line(last_idx).string).strip()
 					if any(last.startswith(p) or last.endswith(p) for p in PROMPT_CHARS):
-						return last
+						return (True, last, int((asyncio.get_running_loop().time() - t0) * 1000))
 				except asyncio.TimeoutError:
 					continue
-	result = run_iterm(_run)
-	if result:
+		elapsed_ms = int((asyncio.get_running_loop().time() - t0) * 1000)
+		return (False, None, elapsed_ms)
+	matched, result, elapsed_ms = run_iterm(_run)
+	if matched:
 		if use_json:
 			click.echo(json.dumps({'line': result}, ensure_ascii=False))
 		else:
 			click.echo(result)
+	else:
+		# #247: silent timeout fixed — emit structured message to stderr, rc != 0.
+		if use_json:
+			click.echo(
+				json.dumps({'matched': False, 'reason': 'timeout', 'elapsed_ms': elapsed_ms},
+				ensure_ascii=False),
+				err=True,
+			)
+		else:
+			click.echo(f"timeout: no prompt appeared within {timeout}s", err=True)
+		raise SystemExit(1)
 
 
 _UUID_RE = re.compile(r'[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}')

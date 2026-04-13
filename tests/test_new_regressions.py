@@ -164,7 +164,6 @@ def test_issue_290_run_json_timeout_rc(session):
 
 # ── #247 on prompt silent timeout ────────────────────────────────────────────
 
-@pytest.mark.known_broken
 def test_issue_247_on_prompt_timeout_rc(session):
 	"""#247: `ita on prompt -t 1` with no prompt event exits 0 silently.
 	Expected fix: must exit non-zero (e.g. 124) on timeout."""
