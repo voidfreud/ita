@@ -52,21 +52,6 @@ def _trim_output_lines(lines: list[str]) -> list[str]:
 	return out
 
 
-def _fallback_output(contents, lines_cap: int, tag: str | None = None) -> str:
-	"""Echo marker not found or not useful — return the last N non-empty rows of
-	the visible screen, trimmed of prompt/blank noise. Used when the command's echo
-	row has scrolled off-screen (BUG-1) or was never recorded. If `tag` is given,
-	drop rows that still contain the wrapper tag (prevents echo/wrap leakage)."""
-	last_idx = last_non_empty_index(contents)
-	if last_idx < 0:
-		return ''
-	rows = [strip(contents.line(i).string).rstrip() for i in range(0, last_idx + 1)]
-	if tag:
-		rows = [r for r in rows if tag not in r]
-	rows = _trim_output_lines(rows)
-	return '\n'.join(rows[-lines_cap:])
-
-
 async def _prompt_is_back(session) -> bool:
 	"""True if the last non-empty screen row looks like a shell prompt —
 	used after sending an interrupt to decide whether the foreground
@@ -360,12 +345,16 @@ def run(cmd, timeout, lines, tail_n, use_json, persist, check_integration, stdin
 			rows = _trim_output_lines(rows)
 			output_rows = rows[-lines:]
 		else:
-			# BUG-1: echo row not found — output scrolled past it. Recover from the
-			# visible screen. Pass the tag so any wrap-continuation rows still
-			# carrying it get dropped.
-			fallback = _fallback_output(contents, lines, tag=tag)
-			output_rows = fallback.split('\n') if fallback else []
-			click.echo('⚠ output may be incomplete — echo row scrolled off screen', err=True)
+			# #317: echo row not found — we can't reliably scope output to this
+			# command. Previously we warned on stderr but returned rc=0 with a
+			# best-effort fallback, which violates CONTRACT §14.1 (must not
+			# report success when the observable effect is incomplete). Fail
+			# loud with rc=2 / not-found so the caller doesn't mistake a
+			# degraded capture for a successful run.
+			raise ItaError("not-found",
+				"run echo row not found — output could not be reliably scoped "
+				"(the command may have scrolled off-screen, or the session was "
+				"disturbed mid-capture)")
 
 		# #126: explicit --tail N overrides the default lines cap. #248:
 		# the truncation notice does NOT go on stdout (that breaks `run -n N`'s
