@@ -4,7 +4,7 @@ import asyncio
 import json
 import click
 import iterm2
-from ._core import cli, run_iterm, next_free_name, _fresh_name
+from ._core import cli, run_iterm, next_free_name, _fresh_name, capture_focus, restore_focus
 from ._envelope import ItaError
 
 
@@ -20,7 +20,9 @@ def tab():
 @click.option('--name', 'tab_name', default=None,
 	help='Explicit title. Collision on --name is bad-args; unset → auto t1/t2/... (#342).')
 @click.option('--profile', default=None)
-def tab_new(window_id, tab_name, profile):
+@click.option('--background', is_flag=True,
+	help='Create without shifting focus; restore previously-focused target after creation (#346).')
+def tab_new(window_id, tab_name, profile, background):
 	"""Create new tab. Returns session ID.
 
 	CONTRACT §2 "Focus-fallback is forbidden, end of (#342)" — `--window`
@@ -36,6 +38,7 @@ def tab_new(window_id, tab_name, profile):
 		window = app.get_window_by_id(window_id)
 		if not window:
 			raise ItaError("not-found", f"Window {window_id!r} not found.")
+		captured = await capture_focus(app) if background else None
 		# Collect existing tab titles for naming decisions. Parallel fetch
 		# (#301) — the prior serial loop paid one RPC per tab.
 		all_tabs = [t for w in app.terminal_windows for t in w.tabs]
@@ -58,6 +61,8 @@ def tab_new(window_id, tab_name, profile):
 			raise ItaError("bad-args", f"Could not create tab: {e}") from e
 		await new_tab.async_set_title(final_name)
 		session = new_tab.current_session
+		if captured is not None:
+			await restore_focus(app, captured)
 		return session.session_id
 	click.echo(run_iterm(_run))
 

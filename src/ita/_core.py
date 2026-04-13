@@ -283,6 +283,72 @@ async def resolve_session(connection, session_id: str | None = None) -> 'iterm2.
 		f"session not found: {session_id}. Run 'ita status' to list sessions."
 	)
 
+# ── Focus capture/restore (#346) ───────────────────────────────────────────
+#
+# CONTRACT §10: creation commands accept `--background` to suppress the
+# focus shift that iTerm2 forces on new tabs/windows/sessions. Capture the
+# currently-focused (window, tab, session) BEFORE creating, then restore
+# AFTER creating. If the captured target is gone when we go to restore —
+# silently proceed (§1 non-goals: no interactive UI decisions).
+
+
+@dataclass
+class FocusSnapshot:
+	"""Captured focus triple — any field may be None if nothing was focused."""
+	window_id: str | None = None
+	tab_id: str | None = None
+	session_id: str | None = None
+
+
+async def capture_focus(app) -> FocusSnapshot:
+	"""Snapshot the currently-focused window/tab/session for later restore.
+
+	Best-effort — any missing layer is recorded as None. Never raises; the
+	caller uses the result only to pass to `restore_focus`."""
+	try:
+		window = app.current_terminal_window
+		tab = window.current_tab if window else None
+		session = tab.current_session if tab else None
+		return FocusSnapshot(
+			window_id=window.window_id if window else None,
+			tab_id=tab.tab_id if tab else None,
+			session_id=session.session_id if session else None,
+		)
+	except Exception:
+		return FocusSnapshot()
+
+
+async def restore_focus(app, snap: FocusSnapshot) -> None:
+	"""Re-activate the session/tab/window captured by `capture_focus`.
+
+	Fallback behaviour (#346): if the original target no longer exists,
+	proceed silently — the user may have closed it in the interim, which
+	is not an error state."""
+	if snap is None:
+		return
+	try:
+		if snap.session_id:
+			for w in app.terminal_windows:
+				for t in w.tabs:
+					for s in t.sessions:
+						if s.session_id == snap.session_id:
+							await s.async_activate(
+								select_tab=True, order_window_front=True)
+							return
+		if snap.tab_id:
+			t = app.get_tab_by_id(snap.tab_id)
+			if t:
+				await t.async_activate(order_window_front=True)
+				return
+		if snap.window_id:
+			w = app.get_window_by_id(snap.window_id)
+			if w:
+				await w.async_activate()
+	except Exception:
+		# §1 non-goal: never surface focus-restore failures to the agent.
+		pass
+
+
 # ── CLI root ────────────────────────────────────────────────────────────────
 
 

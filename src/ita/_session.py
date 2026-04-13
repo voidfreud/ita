@@ -6,7 +6,8 @@ import click
 import iterm2
 from ._core import (cli, run_iterm, resolve_session, strip, read_session_lines,
 	check_protected, _all_sessions, parse_filter, match_filter,
-	session_writelock, _SENTINEL_RE, _fresh_name, next_free_name, snapshot)
+	session_writelock, _SENTINEL_RE, _fresh_name, next_free_name, snapshot,
+	capture_focus, restore_focus)
 from ._envelope import ita_command, ItaError, json_dumps
 from ._lock import resolve_force_flags
 
@@ -69,7 +70,9 @@ _NEW_WAIT_DEFAULT = 'shell_alive,writable'
 @click.option('--wait', 'wait_reqs', default=_NEW_WAIT_DEFAULT, show_default=True,
 	help='Comma-separated readiness flags to satisfy before returning (#250).')
 @click.option('--no-wait', 'no_wait', is_flag=True, help='Return immediately without waiting for session readiness.')
-def new(new_window, profile, session_name, reuse, replace, cwd, run_cmd, as_json, wait_reqs, no_wait):
+@click.option('--background', is_flag=True,
+	help='Create without shifting focus; restore previously-focused target after creation (#346).')
+def new(new_window, profile, session_name, reuse, replace, cwd, run_cmd, as_json, wait_reqs, no_wait, background):
 	"""Create new tab (or window). Returns name (stdout) and session ID.
 
 	By default waits until the session is alive and writable before returning
@@ -87,6 +90,7 @@ def new(new_window, profile, session_name, reuse, replace, cwd, run_cmd, as_json
 		# session just to enumerate existing names.
 		snap = await snapshot(connection)
 		app = snap.app
+		captured = await capture_focus(app) if background else None
 		fresh_pairs = [(s, snap.fresh_names.get(s.session_id, '')) for s in snap.sessions]
 		existing_names = snap.names()
 		# If --name given, check uniqueness / reuse / replace
@@ -174,6 +178,8 @@ def new(new_window, profile, session_name, reuse, replace, cwd, run_cmd, as_json
 			await session.async_send_text(run_cmd + tail)
 		tab = session.tab
 		window = tab.window if tab else None
+		if captured is not None:
+			await restore_focus(app, captured)
 		return {
 			'name': name,
 			'session_id': session.session_id,

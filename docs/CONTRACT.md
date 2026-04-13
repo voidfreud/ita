@@ -321,6 +321,16 @@ default. Rules:
 
 Issues codified above + #340.
 
+**Creation focus discipline (#346).** Creation commands (`ita new`, `ita tab
+new`, `ita window new`) MAY accept `--background` to suppress the focus
+shift iTerm2 performs on new objects. With the flag, ita captures the
+focused (window, tab, session) triple before creating, then re-activates
+it afterwards. If the originally-focused target no longer exists when
+restore runs, ita proceeds silently (§1 non-goal: no interactive UI
+decisions). Default behaviour is unchanged — focus lands on the new
+object. ita's own internal multi-step operations should prefer
+`--background` where supported to avoid mid-operation focus churn.
+
 ---
 
 ## §11 Streaming & Monitor-compatibility
