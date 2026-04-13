@@ -305,16 +305,28 @@ def run(cmd, timeout, lines, tail_n, use_json, persist, check_integration, stdin
 				connection, session.session_id,
 				modes=[iterm2.PromptMonitor.Mode.COMMAND_END]) as mon:
 			await session.async_send_text(wrapped + '\n')
+			# #326: without shell integration, COMMAND_END never fires — waiting
+			# the full user timeout would stall the caller needlessly, so we clamp
+			# the poll to 2s and return without an exit code. The command keeps
+			# running in the session; we just can't observe completion. Critically,
+			# we DO NOT run the interrupt ladder in that case — killing a healthy
+			# long-running process (make build, pip install, REPL) is the bug.
+			effective_timeout = timeout if integration_ok else min(timeout, 2)
 			try:
-				mode, payload = await asyncio.wait_for(mon.async_get(), timeout=(min(timeout, 2) if not integration_ok else timeout))
+				mode, payload = await asyncio.wait_for(mon.async_get(), timeout=effective_timeout)
 				if mode == iterm2.PromptMonitor.Mode.COMMAND_END and isinstance(payload, int):
 					exit_code = payload
 			except asyncio.TimeoutError:
-				timed_out = True  # no shell integration, or command genuinely timed out
-				# #175: escalation ladder — Ctrl+C is not enough for processes
-				# that ignore SIGINT (editors, some REPLs). After each signal,
-				# check whether the prompt returned; only escalate if still hung.
-				escalated = await _escalate_interrupt(session)
+				if integration_ok:
+					# Real timeout: COMMAND_END was expected and didn't arrive.
+					timed_out = True
+					# #175: escalation ladder — Ctrl+C isn't enough for processes
+					# that ignore SIGINT (editors, some REPLs). After each signal,
+					# check whether the prompt returned; only escalate if still hung.
+					escalated = await _escalate_interrupt(session)
+				# else (#326): no-integration clamp expired. Leave timed_out=False,
+				# exit_code=None. Callers read `shell_integration: false` +
+				# `exit_code: null` as "command dispatched, completion unobservable."
 
 		elapsed_ms = int((time.time() - start) * 1000)
 
