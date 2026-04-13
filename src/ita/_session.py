@@ -264,7 +264,9 @@ def close(session_id, filter_expr, all_flag, quiet, dry_run, use_json,
 		key, op, value = parse_filter(filter_expr)
 
 	from ._core import get_protected
+	from ._cascade import session_close_would_cascade_window
 	results = {'closed': [], 'skipped': []}
+	warnings: list[dict] = []
 	async def _run_bulk(connection):
 		pairs = await _session_records(connection)
 		if filter_expr:
@@ -282,7 +284,24 @@ def close(session_id, filter_expr, all_flag, quiet, dry_run, use_json,
 		for s, r in deduped:
 			# #283: per-target protect check. Honored even in bulk paths.
 			if r['session_id'] in protected and not fp:
-				results['skipped'].append(r)
+				results['skipped'].append(('protected', r))
+				continue
+			# CONTRACT §10 "Bulk close protects against cascade (#340)":
+			# per-member check — any close that would cascade-close a
+			# window is refused and surfaced in warnings[], never silently
+			# taken down. --allow-window-close opts in.
+			if not allow_window_close and session_close_would_cascade_window(s):
+				results['skipped'].append(('window-cascade', r))
+				warnings.append({
+					"code": "window-cascade-skipped",
+					"reason": (
+						f"session {r['session_id'][:8]}… skipped: closing it "
+						f"would cascade-close window {r.get('window_id', '?')} "
+						f"(last session in last tab). Pass --allow-window-close "
+						f"to include cascading members (CONTRACT §10, #340)."
+					),
+					"session_id": r['session_id'],
+				})
 				continue
 			results['closed'].append(r)
 			if not dry_run:
@@ -295,7 +314,7 @@ def close(session_id, filter_expr, all_flag, quiet, dry_run, use_json,
 						await s.async_close(force=True)
 				except ItaError:
 					# lock conflict → surface as a skip, not an abort.
-					results['skipped'].append(r)
+					results['skipped'].append(('locked', r))
 				except Exception:
 					# Best-effort bulk close — don't abort the whole batch on
 					# a transient per-session failure.
@@ -309,8 +328,16 @@ def close(session_id, filter_expr, all_flag, quiet, dry_run, use_json,
 			click.echo(r['session_id'])
 		else:
 			click.echo(f"{verb}: {label}", err=not quiet and not dry_run)
-	for r in results['skipped']:
-		click.echo(f"Skipped (protected): {r['session_id']} ({r['session_name']})", err=True)
+	for reason, r in results['skipped']:
+		label_reason = {
+			'protected': 'protected',
+			'window-cascade': 'would cascade-close window',
+			'locked': 'locked',
+		}.get(reason, reason)
+		click.echo(f"Skipped ({label_reason}): {r['session_id']} ({r['session_name']})", err=True)
+	# Surface window-cascade skips in the envelope's warnings[] per §10.
+	return {"warnings": warnings, "data": {"closed": len(results['closed']),
+		"skipped": len(results['skipped'])}}
 
 
 @cli.command()
