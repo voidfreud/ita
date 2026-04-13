@@ -6,7 +6,7 @@ import click
 import iterm2
 from ._core import (cli, run_iterm, resolve_session, strip, read_session_lines,
 	check_protected, _all_sessions, parse_filter, match_filter,
-	session_writelock, _SENTINEL_RE, _fresh_name)
+	session_writelock, _SENTINEL_RE, _fresh_name, next_free_name)
 from ._envelope import ita_command, ItaError
 from ._lock import resolve_force_flags
 
@@ -109,9 +109,12 @@ def new(new_window, profile, session_name, reuse, replace, cwd, run_cmd, as_json
 							pass
 						existing_names.discard(n)
 						break
-					raise click.ClickException(
-						f"session name {session_name!r} already exists. "
-						f"Use --reuse to return the existing session, or --replace to recreate it.")
+					# CONTRACT §2 "Mandatory naming on creation (#342)":
+					# `--name` provided AND taken → bad-args with a message
+					# naming the conflict; never silently auto-rename.
+					raise ItaError("bad-args",
+						f"name {session_name!r} already taken; "
+						f"pass --replace, --reuse, or pick another name.")
 		try:
 			if new_window:
 				window = await iterm2.Window.async_create(connection, profile=profile)
@@ -140,11 +143,10 @@ def new(new_window, profile, session_name, reuse, replace, cwd, run_cmd, as_json
 		# Set session name
 		name = session_name
 		if not name:
-			# Auto-name: s1, s2, s3, ...
-			i = 1
-			while f's{i}' in existing_names:
-				i += 1
-			name = f's{i}'
+			# CONTRACT §2 "Mandatory naming on creation (#342)": no
+			# `--name` → auto-name with the lowest free counter. Shared
+			# helper across object kinds (s/t/w/tmux).
+			name = next_free_name('s', existing_names)
 		await session.async_set_name(name)
 		# Block briefly until the name is visible via the variable API so the
 		# very next ita invocation sees it (#160).

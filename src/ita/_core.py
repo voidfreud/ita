@@ -158,6 +158,20 @@ async def _fresh_name(session) -> str:
 	return strip(fresh or '')
 
 
+def next_free_name(prefix: str, taken: set[str]) -> str:
+	"""Lowest-counter free name for an object kind (CONTRACT §2 "Mandatory
+	naming on creation (#342)").
+
+	Scans `f"{prefix}1"`, `f"{prefix}2"`, … and returns the first not in
+	`taken`. Shared across sessions (`s`), tabs (`t`), windows (`w`), tmux
+	sessions (`tmux`) so auto-naming logic is not duplicated per command.
+	"""
+	i = 1
+	while f"{prefix}{i}" in taken:
+		i += 1
+	return f"{prefix}{i}"
+
+
 async def resolve_session(connection, session_id: str | None = None) -> 'iterm2.Session':
 	"""
 	Resolve target session by exact UUID, exact name, or 8+ char UUID prefix
