@@ -40,6 +40,13 @@ def save(name, window_id, force):
 				raise ItaError("not-found", f"Window {window_id!r} not found.")
 			await w.async_save_window_as_arrangement(name)
 		else:
+			# #286: refuse empty-app save. Saving when iTerm2 has no terminal
+			# windows yields an empty arrangement — a silent no-op from the
+			# agent's perspective. CONTRACT §3 forbids false-positive success.
+			app = await iterm2.async_get_app(connection)
+			if not app.terminal_windows:
+				raise ItaError("bad-args",
+					f"Cannot save {name!r}: no terminal windows to capture.")
 			await iterm2.Arrangement.async_save(connection, name)
 		return True
 	run_iterm(_run)
