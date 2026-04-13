@@ -192,7 +192,6 @@ def test_issue_248_run_n_warning_on_stderr(session):
 
 # ── #250 new-not-ready jobName ────────────────────────────────────────────────
 
-@pytest.mark.known_broken
 def test_issue_250_new_session_var_get_job_name():
 	"""#250: `ita var get jobName` immediately after new session returns empty ~20% of the time.
 	Expected fix: new waits until session variables are populated before returning."""
@@ -201,7 +200,7 @@ def test_issue_250_new_session_var_get_job_name():
 	samples = 20
 	try:
 		for _ in range(samples):
-			r = ita('new', '--name', 'ita-test-reg250')
+			r = ita('new', '--name', 'ita-test-reg250', '--wait', 'jobName_populated')
 			if r.returncode != 0:
 				failures += 1
 				continue
