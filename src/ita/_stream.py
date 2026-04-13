@@ -1,10 +1,10 @@
 # src/_stream.py
 """Streaming commands: watch."""
 import asyncio
-import json
 import click
 import iterm2
 from ._core import cli, run_iterm, resolve_session, strip, last_non_empty_index, _is_prompt_line
+from ._envelope import json_dumps
 from ._output import _clean_lines
 
 
@@ -25,7 +25,7 @@ async def _stream_session(session, json_stream: bool, prefix: str = '', name: st
 		payload = {'session_id': session.session_id, 'lines': initial, 'timestamp_ms': _ts()}
 		if name:
 			payload['session'] = name
-		click.echo(json.dumps(payload, ensure_ascii=False))
+		click.echo(json_dumps(payload))
 	else:
 		for line in initial:
 			click.echo(f"{prefix}{line}" if prefix else line)
@@ -55,7 +55,7 @@ async def _stream_session(session, json_stream: bool, prefix: str = '', name: st
 						payload = {'session_id': session.session_id, 'lines': new_lines, 'timestamp_ms': _ts()}
 						if name:
 							payload['session'] = name
-						click.echo(json.dumps(payload, ensure_ascii=False))
+						click.echo(json_dumps(payload))
 					else:
 						for line in new_lines:
 							click.echo(f"{prefix}{line}" if prefix else line)

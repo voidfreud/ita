@@ -7,7 +7,7 @@ import iterm2
 from ._core import (cli, run_iterm, resolve_session, strip, read_session_lines,
 	check_protected, _all_sessions, parse_filter, match_filter,
 	session_writelock, _SENTINEL_RE, _fresh_name, next_free_name)
-from ._envelope import ita_command, ItaError
+from ._envelope import ita_command, ItaError, json_dumps
 from ._lock import resolve_force_flags
 
 
@@ -183,8 +183,7 @@ def new(new_window, profile, session_name, reuse, replace, cwd, run_cmd, as_json
 
 	info = run_iterm(_run)
 	if as_json:
-		import json as _json
-		click.echo(_json.dumps(info))
+		click.echo(json_dumps(info))
 	else:
 		click.echo(f"{info['name']}\t{info['session_id']}")
 

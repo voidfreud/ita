@@ -28,11 +28,18 @@ def _make_filter(after_row=None, since_prompt=False, grep_rx=None):
 
 
 class TestIsPromptLine:
-	@pytest.mark.parametrize('line', ['$', '# root', '% zsh', '❯ cmd', '→ go', '>> py', 'cmd $', '  $  '])
+	# Post-#327: a prompt line is a bare prompt char, optionally preceded by
+	# user/host/cwd decoration ending in whitespace. Echo remnants (`$ ls`)
+	# are NOT prompts. Content glued to a prompt char (#331) is NOT a prompt.
+	@pytest.mark.parametrize('line', ['$', '~ ❯', 'user@host %', '  $  '])
 	def test_detects_prompts(self, line):
 		assert _is_prompt_line(line) is True
 
-	@pytest.mark.parametrize('line', ['', '   ', 'hello world', 'no prompt here', 'foo bar baz'])
+	@pytest.mark.parametrize('line', [
+		'', '   ', 'hello world', 'no prompt here', 'foo bar baz',
+		'$ ls', '❯ cmd', '% zsh',   # echo remnants — #327
+		'price: 5%', 'regex: ^foo$',  # content with trailing prompt char — #331
+	])
 	def test_rejects_non_prompts(self, line):
 		assert _is_prompt_line(line) is False
 
@@ -56,9 +63,11 @@ class TestAfterRow:
 
 
 class TestSincePrompt:
+	# Prompt markers must be BARE prompt lines per #327 — echo remnants like
+	# `$ cmd` are not prompts, so test fixtures use bare `$` / `~ $` rows.
 	def test_returns_lines_after_last_prompt(self):
 		f = _make_filter(since_prompt=True)
-		lines = ['$ first', 'out1', '$ second', 'out2', 'out3']
+		lines = ['first', '~ $', 'out1', '~ $', 'out2', 'out3']
 		assert f(lines) == ['out2', 'out3']
 
 	def test_no_prompt_returns_all(self):
@@ -71,7 +80,7 @@ class TestSincePrompt:
 
 	def test_finds_last_not_first(self):
 		f = _make_filter(since_prompt=True)
-		lines = ['$ a', 'x', '$ b', 'y', '$ c', 'z']
+		lines = ['~ $', 'x', '~ $', 'y', '~ $', 'z']
 		assert f(lines) == ['z']
 
 	def test_empty_input(self):
@@ -82,8 +91,8 @@ class TestSincePrompt:
 class TestCombined:
 	def test_after_row_then_since_prompt(self):
 		f = _make_filter(after_row=1, since_prompt=True)
-		lines = ['$ old', '$ kept', 'a', 'b']
-		# after_row=1 -> ['$ kept', 'a', 'b']; since_prompt strips through last prompt -> ['a','b']
+		lines = ['~ $', '~ $', 'a', 'b']
+		# after_row=1 -> ['~ $', 'a', 'b']; since_prompt strips through last prompt -> ['a','b']
 		assert f(lines) == ['a', 'b']
 
 

@@ -5,35 +5,57 @@ Single source of truth for `_is_prompt_line` (CONTRACT §9). Every command that
 needs to decide "is this line a shell prompt?" calls this function, not its
 own heuristic.
 """
+import os
 import re
 
 import iterm2
 
-PROMPT_CHARS = ('❯', '$', '#', '%', '→', '>>')
+# Default prompt chars (CONTRACT §9). User extensions via ITA_PROMPT_CHARS.
+_DEFAULT_PROMPT_CHARS = ('$', '%', '#', '>', '❯', '›')
+
+
+def _prompt_chars() -> tuple[str, ...]:
+	"""Prompt characters in effect: defaults + ITA_PROMPT_CHARS extensions.
+
+	ITA_PROMPT_CHARS is read per-call so tests / user env changes take effect
+	without process restart. Empty / whitespace extensions are ignored."""
+	extra = os.environ.get('ITA_PROMPT_CHARS', '') or ''
+	# Extensions are a raw string — each codepoint is one prompt char.
+	return _DEFAULT_PROMPT_CHARS + tuple(c for c in extra if not c.isspace())
+
+
+# Legacy export kept for call sites that still import it (e.g. _send.py trim).
+PROMPT_CHARS = _DEFAULT_PROMPT_CHARS
 _SENTINEL_RE = re.compile(r'^: ita-[0-9a-f]+;')
 
 
 def _is_prompt_line(s: str) -> bool:
-	"""True if s looks like a shell prompt line with no meaningful content
-	(e.g. '~ ❯', '$', '% ', '~ ❯ :'). Catches both fully-rendered prompts and
-	echo remnants where only the prompt + command-separator punctuation survived.
+	"""True iff s is a shell-prompt line with no content (CONTRACT §9, #327, #331).
+
+	A prompt line is the shell's prompt rendering — a prompt character either
+	alone or preceded by user/host/cwd decoration separated by whitespace
+	(e.g. `$`, `~ ❯`, `user@host %`). Content that happens to end in a prompt
+	char glued to non-whitespace (e.g. `price: 5%`, `regex: ^foo$`) is
+	CONTENT, not a prompt — stripping it would erase real data (#331). Echo
+	remnants like `$ ls` also have non-whitespace after the prompt char and
+	are rejected (#327).
+
+	Rules:
+	- Strip NUL, strip trailing whitespace.
+	- Empty → False.
+	- Stripped string equals a prompt char → True (e.g. `$`).
+	- Stripped string ends with `<whitespace><prompt_char>` → True
+	  (e.g. `~ ❯`, `user@host:/ %`).
+	- Otherwise → False (content, echo remnants, regular output).
 	"""
-	t = s.strip()
+	t = s.replace('\x00', '').rstrip()
 	if not t:
 		return False
-	if t in PROMPT_CHARS:
-		return True
-	if any(t.startswith(p + ' ') for p in PROMPT_CHARS):
-		return True
-	if any(t.endswith(' ' + p) for p in PROMPT_CHARS):
-		return True
-	# Line contains a prompt char AND its non-prompt residue is only punctuation /
-	# whitespace (e.g. '~ ❯ :' — echo row remnant with the `: ita-tag;` truncated).
-	if any(p in t for p in PROMPT_CHARS):
-		residue = t
-		for p in PROMPT_CHARS:
-			residue = residue.replace(p, '')
-		if not residue.strip(' ~./:;'):
+	for p in _prompt_chars():
+		if t == p:
+			return True
+		# prompt char preceded by whitespace = shell prompt decoration.
+		if t.endswith(p) and len(t) > len(p) and t[-len(p) - 1].isspace():
 			return True
 	return False
 

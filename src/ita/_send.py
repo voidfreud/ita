@@ -2,7 +2,6 @@
 """Input commands: run (atomic), send, inject, key.
 File is named _send.py rather than _io.py to avoid collision with Python's built-in _io module."""
 import asyncio
-import json
 import sys
 import time
 import uuid
@@ -10,7 +9,7 @@ import click
 import iterm2
 from ._core import (cli, run_iterm, resolve_session, strip, PROMPT_CHARS,
 	last_non_empty_index, check_protected, session_writelock, _is_prompt_line)
-from ._envelope import ita_command, ItaError
+from ._envelope import ita_command, ItaError, json_dumps
 from ._lock import resolve_force_flags
 
 
@@ -28,35 +27,26 @@ def _force_options(f):
 
 
 def _trim_output_lines(lines: list[str]) -> list[str]:
-	"""Drop trailing prompt/blank rows, strip zsh `%` no-newline indicator from the
-	final content line, and remove leading/trailing blanks. Never discards the last
-	real content line — BUG-3: when the `%` indicator is alone on its own row right
-	after real output, we strip it without deleting the content above it."""
+	"""Drop trailing prompt/blank rows. Preserve content (CONTRACT §3, §9, #331).
+
+	A trailing row that IS a bare prompt (per `_is_prompt_line`) is dropped —
+	that's a freshly-rendered prompt below the command output. A content row
+	that merely ends in a prompt character (e.g. `"cost: $"`, `"price: 5%"`)
+	is CONTENT and MUST be kept verbatim: stripping the tail char there
+	erased real data (#331).
+	"""
 	out = list(lines)
-	# Drop a trailing prompt row (may happen when a fresh prompt rendered below output).
-	if out and _is_prompt_line(out[-1]):
-		out.pop()
-	# Strip the zsh no-newline `%` indicator: it may live alone on the last row,
-	# or be glued to the tail of the final content row.
-	if out:
-		tail = out[-1].rstrip()
-		if tail == '%':
-			# `%` alone → just remove the row; content above is preserved.
-			out.pop()
-		else:
-			# `noeol%` or `... %` → strip the trailing prompt-char (but only one).
-			for p in PROMPT_CHARS:
-				if tail.endswith(p):
-					trimmed = tail[: -len(p)].rstrip()
-					# Only apply the strip if we're not erasing the whole line — a
-					# bare prompt char here would already have been caught above.
-					out[-1] = trimmed
-					break
-	# Drop leading/trailing blank rows.
-	while out and not out[0].strip():
-		out.pop(0)
+	# Drop trailing blanks first so a `[..., '$', '']` shape collapses.
 	while out and not out[-1].strip():
 		out.pop()
+	# Drop a trailing bare-prompt row if one rendered after the output.
+	if out and _is_prompt_line(out[-1]):
+		out.pop()
+	# Drop any blanks re-exposed by the prompt pop, plus leading blanks.
+	while out and not out[-1].strip():
+		out.pop()
+	while out and not out[0].strip():
+		out.pop(0)
 	return out
 
 
@@ -189,7 +179,7 @@ def run(cmd, timeout, lines, tail_n, use_json, persist, check_integration, stdin
 			return await _has_shell_integration(session)
 		active = run_iterm(_probe)
 		if use_json:
-			click.echo(json.dumps({'shell_integration': bool(active)}))
+			click.echo(json_dumps({'shell_integration': bool(active)}))
 		else:
 			click.echo('active' if active else 'missing')
 		sys.exit(0 if active else 1)
@@ -303,21 +293,20 @@ def run(cmd, timeout, lines, tail_n, use_json, persist, check_integration, stdin
 			output_rows = fallback.split('\n') if fallback else []
 			click.echo('⚠ output may be incomplete — echo row scrolled off screen', err=True)
 
-		# #126: explicit --tail N overrides the default lines cap and prepends
-		# a truncation notice when output was actually cut. Silent truncation
-		# from -n/--lines is preserved for backwards compatibility.
+		# #126: explicit --tail N overrides the default lines cap. #248:
+		# the truncation notice does NOT go on stdout (that breaks `run -n N`'s
+		# N-line contract). Plain mode surfaces it on stderr; JSON mode
+		# exposes `data.truncated_from` instead.
 		truncated_from = None
 		if tail_n is not None and len(output_rows) > tail_n:
 			truncated_from = len(output_rows)
 			output_rows = output_rows[-tail_n:]
 
 		output = '\n'.join(output_rows)
-		if truncated_from is not None:
-			output = f"[truncated: {truncated_from} lines]\n" + output
 
-		return output, elapsed_ms, exit_code, timed_out, integration_ok, escalated
+		return output, elapsed_ms, exit_code, timed_out, integration_ok, escalated, truncated_from
 
-	output, elapsed_ms, exit_code, timed_out, integration_ok, escalated = run_iterm(_run)
+	output, elapsed_ms, exit_code, timed_out, integration_ok, escalated, truncated_from = run_iterm(_run)
 
 	# Resolve target session id for envelope (re-resolve cheaply via params;
 	# the body already proved it exists, so this is best-effort).
@@ -343,6 +332,7 @@ def run(cmd, timeout, lines, tail_n, use_json, persist, check_integration, stdin
 				"timed_out": timed_out,
 				"escalated": bool(escalated),
 				"shell_integration": bool(integration_ok),
+				"truncated_from": truncated_from,
 			},
 		}
 
@@ -355,6 +345,9 @@ def run(cmd, timeout, lines, tail_n, use_json, persist, check_integration, stdin
 	# migration to rc=4 is queued for a follow-up PR; see CONTRACT §6
 	# amendment in this PR.
 	click.echo(output)
+	if truncated_from is not None:
+		# #248: notice lives on stderr so stdout stays at exactly `lines` rows.
+		click.echo(f"ita: truncated from {truncated_from} lines", err=True)
 	if timed_out:
 		suffix = ' (escalated past Ctrl+C)' if escalated else ''
 		click.echo(f"ita: timed out after {timeout}s{suffix}", err=True)

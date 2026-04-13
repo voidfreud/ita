@@ -1,10 +1,10 @@
 # src/_output.py
 """Output reading commands: read. Shared helpers exported for _stream, _query."""
-import json
 import re
 import click
 import iterm2
 from ._core import (cli, run_iterm, resolve_session, strip, last_non_empty_index, read_session_lines, _is_prompt_line, _SENTINEL_RE)
+from ._envelope import json_dumps
 
 
 def _clean_lines(contents) -> list[str]:
@@ -71,6 +71,13 @@ def read(lines_arg, lines_opt, use_json, read_all, ids_only, scrollback,
 			raise click.ClickException(f"Invalid regex {grep_pattern!r}: {e}") from e
 
 	def _filter(raw):
+		"""Return (filtered_lines, truncated_from).
+
+		truncated_from is the pre-truncation count when --tail kicked in,
+		else None. Per CONTRACT §3 / #248 the notice is NOT prepended to the
+		payload — it rides on stderr (plain mode) or `truncated_from`
+		(JSON mode) so stdout is exactly the caller-requested shape.
+		"""
 		result = raw
 		if after_row is not None:
 			result = result[after_row:]
@@ -82,12 +89,15 @@ def read(lines_arg, lines_opt, use_json, read_all, ids_only, scrollback,
 				if _is_prompt_line(result[i]):
 					result = result[i + 1:]
 					break
-		# #126: --tail truncates AFTER other filters so the notice reflects
-		# what the caller would otherwise have seen, and prepends a notice
-		# so agents know context was cut.
+		truncated_from = None
 		if tail_n is not None and len(result) > tail_n:
-			result = [f"[truncated: {len(result)} lines]"] + result[-tail_n:]
-		return result
+			truncated_from = len(result)
+			result = result[-tail_n:]
+		return result, truncated_from
+
+	def _notice(truncated_from):
+		if truncated_from is not None:
+			click.echo(f"ita: truncated from {truncated_from} lines", err=True)
 
 	if read_all:
 		async def _run_all(connection):
@@ -104,11 +114,18 @@ def read(lines_arg, lines_opt, use_json, read_all, ids_only, scrollback,
 			for sid in data:
 				click.echo(sid)
 		elif use_json:
-			click.echo(json.dumps(data, ensure_ascii=False))
+			# JSON: attach truncated_from per session inside the payload.
+			out = {}
+			for sid, sd in data.items():
+				filtered, tf = _filter(sd['lines'])
+				out[sid] = {**sd, 'lines': filtered, 'truncated_from': tf}
+			click.echo(json_dumps(out))
 		else:
 			for sid, sd in data.items():
+				filtered, tf = _filter(sd['lines'])
 				click.echo(f"--- {sid} ---")
-				click.echo('\n'.join(_filter(sd['lines'])))
+				click.echo('\n'.join(filtered))
+				_notice(tf)
 		return
 
 	async def _run(connection):
@@ -116,8 +133,9 @@ def read(lines_arg, lines_opt, use_json, read_all, ids_only, scrollback,
 		return await _read_session(session, n, scrollback)
 
 	data = run_iterm(_run)
-	filtered = _filter(data['lines'])
+	filtered, tf = _filter(data['lines'])
 	if use_json:
-		click.echo(json.dumps({**data, 'lines': filtered}, ensure_ascii=False))
+		click.echo(json_dumps({**data, 'lines': filtered, 'truncated_from': tf}))
 	else:
 		click.echo('\n'.join(filtered))
+		_notice(tf)
