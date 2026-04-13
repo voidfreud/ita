@@ -147,7 +147,11 @@ def get_prompt(session_id, use_json):
 
 	result = run_iterm(_run)
 	if use_json:
-		click.echo(json.dumps(result if result else {}, ensure_ascii=False))
+		if result:
+			result['present'] = True
+			click.echo(json.dumps(result, ensure_ascii=False))
+		else:
+			click.echo(json.dumps({'cwd': None, 'command': None, 'exit_code': None, 'present': False}, ensure_ascii=False))
 	elif result:
 		click.echo(f"cwd:      {result['cwd']}")
 		click.echo(f"command:  {result['command']}")

@@ -101,7 +101,6 @@ def test_issue_285_broadcast_duplicate_delivery(session):
 
 # ── #286 layouts save --window silent no-op ──────────────────────────────────
 
-@pytest.mark.known_broken
 def test_issue_286_layouts_save_window_no_current_window():
 	"""#286: `ita layouts save --window` with no current window exits 0 and prints "Saved:".
 	Expected fix: must exit non-zero when no window context exists."""

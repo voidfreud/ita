@@ -30,10 +30,12 @@ def save(name, window_only, force):
 		if window_only:
 			app = await iterm2.async_get_app(connection)
 			w = app.current_terminal_window
-			if w:
-				await w.async_save_window_as_arrangement(name)
+			if not w:
+				raise click.ClickException("No current window — cannot save window layout.")
+			await w.async_save_window_as_arrangement(name)
 		else:
 			await iterm2.Arrangement.async_save(connection, name)
+		return True
 	run_iterm(_run)
 	click.echo(f"Saved: {name}")
 
