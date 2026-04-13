@@ -3,7 +3,7 @@
 import json
 import click
 import iterm2
-from ._core import cli, run_iterm
+from ._core import cli, run_iterm, next_free_name, _fresh_name
 from ._envelope import ItaError
 
 
@@ -14,15 +14,40 @@ def tab():
 
 
 @tab.command('new')
-@click.option('--window', 'window_id', default=None)
+@click.option('--window', 'window_id', default=None,
+	help='Window to create the tab in. REQUIRED — no focus fallback (#342).')
+@click.option('--name', 'tab_name', default=None,
+	help='Explicit title. Collision on --name is bad-args; unset → auto t1/t2/... (#342).')
 @click.option('--profile', default=None)
-def tab_new(window_id, profile):
-	"""Create new tab. Returns session ID."""
+def tab_new(window_id, tab_name, profile):
+	"""Create new tab. Returns session ID.
+
+	CONTRACT §2 "Focus-fallback is forbidden, end of (#342)" — `--window`
+	is required; there is no implicit 'current window' fallback.
+	CONTRACT §2 "Mandatory naming on creation (#342)" — when `--name` is
+	absent, the tab is titled with the lowest free `t<N>` counter."""
+	if not window_id:
+		raise ItaError("bad-args",
+			"no window specified. Use --window NAME or --window UUID-PREFIX. "
+			"Focus-fallback is forbidden (CONTRACT §2, #342).")
 	async def _run(connection):
 		app = await iterm2.async_get_app(connection)
-		window = app.get_window_by_id(window_id) if window_id else app.current_terminal_window
+		window = app.get_window_by_id(window_id)
 		if not window:
-			raise click.ClickException("No window available. Run 'ita window new' first.")
+			raise ItaError("not-found", f"Window {window_id!r} not found.")
+		# Collect existing tab titles for naming decisions. Use async_get_variable
+		# on 'title' per the resolver's fresh-read discipline.
+		existing_titles: set[str] = set()
+		for w in app.terminal_windows:
+			for t in w.tabs:
+				title = await t.async_get_variable('title') or ''
+				if title:
+					existing_titles.add(strip_or(title))
+		# §2: explicit name collision → bad-args (never silent rename).
+		if tab_name and tab_name in existing_titles:
+			raise ItaError("bad-args",
+				f"name {tab_name!r} already taken; pick another name.")
+		final_name = tab_name or next_free_name('t', existing_titles)
 		try:
 			new_tab = await window.async_create_tab(profile=profile)
 		except iterm2.CreateTabException as e:
@@ -31,9 +56,15 @@ def tab_new(window_id, profile):
 			if str(e) == 'INVALID_PROFILE_NAME':
 				raise ItaError("bad-args", f"Profile not found: {profile!r}") from e
 			raise ItaError("bad-args", f"Could not create tab: {e}") from e
+		await new_tab.async_set_title(final_name)
 		session = new_tab.current_session
 		return session.session_id
 	click.echo(run_iterm(_run))
+
+
+def strip_or(s: str) -> str:
+	"""Normalise a title to a plain str (mirrors _core.strip's NUL strip)."""
+	return (s or '').replace('\x00', '').strip()
 
 
 @tab.command('close')

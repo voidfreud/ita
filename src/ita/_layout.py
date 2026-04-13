@@ -3,7 +3,7 @@
 import json
 import click
 import iterm2
-from ._core import cli, run_iterm, confirm_or_skip
+from ._core import cli, run_iterm, confirm_or_skip, next_free_name
 from ._envelope import ItaError
 
 
@@ -16,15 +16,32 @@ def window():
 
 
 @window.command('new')
+@click.option('--name', 'window_name', default=None,
+	help='Explicit title. Collision on --name is bad-args; unset → auto w1/w2/... (#342).')
 @click.option('--profile', default=None)
-def window_new(profile):
+def window_new(window_name, profile):
+	"""Create new window. Returns window ID.
+
+	CONTRACT §2 "Mandatory naming on creation (#342)" — when `--name` is
+	absent, the window is titled with the lowest free `w<N>` counter."""
 	async def _run(connection):
+		app = await iterm2.async_get_app(connection)
+		existing_titles: set[str] = set()
+		for w in app.terminal_windows:
+			title = await w.async_get_variable('title') or ''
+			if title:
+				existing_titles.add(title.replace('\x00', '').strip())
+		if window_name and window_name in existing_titles:
+			raise ItaError("bad-args",
+				f"name {window_name!r} already taken; pick another name.")
+		final_name = window_name or next_free_name('w', existing_titles)
 		try:
 			w = await iterm2.Window.async_create(connection, profile=profile)
 		except Exception as e:
 			if 'INVALID_PROFILE_NAME' in str(e):
-				raise click.ClickException(f"Profile not found: {profile!r}") from e
+				raise ItaError("bad-args", f"Profile not found: {profile!r}") from e
 			raise
+		await w.async_set_title(final_name)
 		return w.window_id
 	click.echo(run_iterm(_run))
 
