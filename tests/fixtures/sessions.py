@@ -4,7 +4,7 @@ import shutil
 import time
 import pytest
 
-from conftest import ita, ita_ok, _extract_sid, TEST_SESSION_PREFIX
+from helpers import ita, ita_ok, _extract_sid, TEST_SESSION_PREFIX
 
 
 @pytest.fixture
