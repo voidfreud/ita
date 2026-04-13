@@ -1,12 +1,21 @@
 # src/_core.py
-"""
-Core helpers shared by all ita modules.
-run_iterm(), resolve_session(), strip().
+"""Core helpers shared by all ita modules.
+
+Split layout (Phase 2, #256 follow-up):
+  - _protect.py   — protected-session set, check_protected
+  - _screen.py    — prompt detection, null-strip, read_session_lines
+  - _filter.py    — --where KEY=VALUE parse/match
+  - _envelope.py  — exit-code taxonomy + SCHEMA_VERSION (CONTRACT §4, §6)
+
+This file keeps: emit, success_echo, confirm_or_skip, run_iterm, resolve_session,
+the writelock helpers (moved to _lock.py in Phase 3 protection-lock branch),
+and the `cli` root. Names extracted to the modules above are re-exported here
+so existing `from _core import X` imports keep working; once each Phase 3 branch
+touches its module, it can import directly from the correct source.
 """
 import fcntl
 import json
 import os
-import re
 import sys
 import uuid
 from datetime import datetime, timezone
@@ -17,44 +26,22 @@ from typing import Any
 import click
 import iterm2
 
-# ── Protected sessions ──────────────────────────────────────────────────────
-
-PROTECTED_FILE = Path.home() / ".ita_protected"
-
-def get_protected() -> set[str]:
-	"""Return set of protected session IDs."""
-	if not PROTECTED_FILE.exists():
-		return set()
-	return {line.strip() for line in PROTECTED_FILE.read_text().splitlines() if line.strip()}
-
-def add_protected(session_id: str) -> None:
-	"""Add session_id to the protected list."""
-	existing = get_protected()
-	existing.add(session_id)
-	PROTECTED_FILE.write_text('\n'.join(sorted(existing)) + '\n')
-
-def remove_protected(session_id: str) -> None:
-	"""Remove session_id from the protected list."""
-	existing = get_protected()
-	existing.discard(session_id)
-	if existing:
-		PROTECTED_FILE.write_text('\n'.join(sorted(existing)) + '\n')
-	else:
-		PROTECTED_FILE.unlink(missing_ok=True)
-
-def check_protected(session_id: str, force: bool = False) -> None:
-	"""Raise ClickException if session_id is in ~/.ita_protected and force is False.
-
-	Call this in any write command (run, send, key, inject, close, clear, restart)
-	before performing the operation. This prevents accidentally writing to a
-	designated session (e.g. the active Claude Code terminal) when focus shifts."""
-	if force:
-		return
-	if session_id in get_protected():
-		raise click.ClickException(
-			f"Session {session_id[:8]}… is protected (~/.ita_protected). "
-			f"Use --force to override, or `ita unprotect -s {session_id[:8]}` to remove protection."
-		)
+# Re-exports — back-compat shims for existing callers. Phase 3 branches will
+# migrate their own modules to import from the canonical source.
+from _protect import (  # noqa: F401
+	PROTECTED_FILE, get_protected, add_protected, remove_protected, check_protected,
+)
+from _screen import (  # noqa: F401
+	PROMPT_CHARS, _SENTINEL_RE, _is_prompt_line, strip, last_non_empty_index,
+	read_session_lines,
+)
+from _filter import parse_filter, match_filter  # noqa: F401
+from _envelope import (  # noqa: F401
+	SCHEMA_VERSION, EXIT_CODES,
+	EXIT_OK, EXIT_NOT_FOUND, EXIT_PROTECTED, EXIT_TIMEOUT, EXIT_LOCKED,
+	EXIT_BAD_ARGS, EXIT_API_UNREACHABLE, EXIT_NO_SHELL_INTEGRATION,
+	ItaError,
+)
 
 # ── Session write-lock (#109) ──────────────────────────────────────────────
 #
@@ -64,6 +51,8 @@ def check_protected(session_id: str, force: bool = False) -> None:
 # leaves behind a stale record that the next caller reclaims via a live-PID
 # probe (os.kill(pid, 0)). ~/.ita_writelock JSON shape:
 #     {session_id: {"pid": int, "at": iso8601}}
+#
+# TODO (Phase 3 protection-lock branch): move to _lock.py.
 
 WRITELOCK_FILE = Path.home() / ".ita_writelock"
 # Cookies for locks acquired by this process instance; keyed by session_id.
@@ -206,113 +195,6 @@ class session_writelock:
 
 # ── Output helpers ─────────────────────────────────────────────────────────
 
-PROMPT_CHARS = ('❯', '$', '#', '%', '→', '>>')
-_SENTINEL_RE = re.compile(r'^: ita-[0-9a-f]+;')
-
-
-def _is_prompt_line(s: str) -> bool:
-	"""True if s looks like a shell prompt line with no meaningful content
-	(e.g. '~ ❯', '$', '% ', '~ ❯ :'). Catches both fully-rendered prompts and
-	echo remnants where only the prompt + command-separator punctuation survived."""
-	t = s.strip()
-	if not t:
-		return False
-	if t in PROMPT_CHARS:
-		return True
-	if any(t.startswith(p + ' ') for p in PROMPT_CHARS):
-		return True
-	if any(t.endswith(' ' + p) for p in PROMPT_CHARS):
-		return True
-	# Line contains a prompt char AND its non-prompt residue is only punctuation /
-	# whitespace (e.g. '~ ❯ :' — echo row remnant with the `: ita-tag;` truncated).
-	if any(p in t for p in PROMPT_CHARS):
-		residue = t
-		for p in PROMPT_CHARS:
-			residue = residue.replace(p, '')
-		if not residue.strip(' ~./:;'):
-			return True
-	return False
-
-
-def strip(text: str) -> str:
-	"""Remove null bytes from terminal output."""
-	return text.replace('\x00', '')
-
-def last_non_empty_index(contents) -> int:
-	"""Last non-empty line index in a ScreenContents, or -1 if blank.
-	number_of_lines is grid height, not content height — the bottom rows are
-	usually empty whitespace, so callers must scan backward to find content."""
-	for i in range(contents.number_of_lines - 1, -1, -1):
-		if strip(contents.line(i).string).strip():
-			return i
-	return -1
-
-
-async def read_session_lines(
-	session: 'iterm2.Session',
-	include_scrollback: bool = False,
-) -> list[str]:
-	"""Read session output as a list of cleaned strings.
-
-	When include_scrollback is False (default) returns only the visible grid —
-	fast path, behavior unchanged. When True, returns scrollback history + the
-	mutable grid via async_get_line_info + async_get_contents inside a
-	Transaction so the session can't mutate between the two calls.
-
-	Null bytes are stripped from every line; trailing blank lines are dropped.
-	Callers filter ita sentinel rows themselves."""
-	if not include_scrollback:
-		contents = await session.async_get_screen_contents()
-		result = [strip(contents.line(i).string) for i in range(contents.number_of_lines)]
-	else:
-		async with iterm2.Transaction(session.connection):
-			info = await session.async_get_line_info()
-			total = info.mutable_area_height + info.scrollback_buffer_height
-			# first_line must be >= overflow; async_get_contents returns
-			# however many lines are actually available. Clamp first to total
-			# so small scrollback / fresh sessions can't yield a bad range.
-			first = min(info.overflow, total)
-			lines = await session.async_get_contents(first, total)
-		result = [strip(line.string) for line in lines]
-	while result and not result[-1].strip():
-		result.pop()
-	return result
-
-# ── Filter expressions (--where) ───────────────────────────────────────────
-
-def parse_filter(expr: str) -> tuple[str, str, str]:
-	"""Parse a --where expression into (key, op, value).
-
-	Operators (longest-first so ~=/!= don't get swallowed by =):
-	  KEY~=VALUE  → starts-with
-	  KEY!=VALUE  → not-equal
-	  KEY=VALUE   → exact match
-	Raises ClickException for invalid format.
-	"""
-	for op in ('~=', '!=', '='):
-		if op in expr:
-			key, value = expr.split(op, 1)
-			key = key.strip()
-			if not key:
-				break
-			return key, op, value.strip()
-	raise click.ClickException(
-		f"Invalid filter format: {expr!r}. Use KEY=VALUE, KEY~=PREFIX, or KEY!=VALUE."
-	)
-
-
-def match_filter(record: dict, key: str, op: str, value: str) -> bool:
-	"""Test whether a record (dict of session properties) matches a parsed filter."""
-	field = str(record.get(key, '')).strip()
-	value = value.strip()
-	if op == '=':
-		return field == value
-	if op == '!=':
-		return field != value
-	if op == '~=':
-		return field.startswith(value)
-	return False
-
 
 def emit(data: Any, use_json: bool = False) -> None:
 	"""Print data as plain text or JSON."""
@@ -435,7 +317,7 @@ async def resolve_session(connection, session_id: str | None = None) -> 'iterm2.
 # ── CLI root ────────────────────────────────────────────────────────────────
 
 
-__version__ = '0.3.0'
+__version__ = '0.7.0'
 
 
 @click.group()
