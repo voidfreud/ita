@@ -1,10 +1,9 @@
 # src/_config.py
 """Config commands: var group, app group, pref group, broadcast group."""
-import json
 import click
 import iterm2
 from ._core import cli, run_iterm, resolve_session, confirm_or_skip, success_echo, check_protected, session_writelock
-from ._envelope import ItaError
+from ._envelope import ItaError, json_dumps
 from ._lock import resolve_force_flags
 
 
@@ -74,7 +73,7 @@ def var_get(name, scope, session_id, tab_id, window_id, use_json):
 			return await session.async_get_variable(name)
 	result = run_iterm(_run)
 	if use_json:
-		click.echo(json.dumps({'name': name, 'value': result, 'scope': scope}, default=str))
+		click.echo(json_dumps({'name': name, 'value': result, 'scope': scope}, default=str))
 	else:
 		click.echo(str(result) if result is not None else '')
 
@@ -128,7 +127,7 @@ def var_set(name, value, scope, session_id, tab_id, window_id, quiet, dry_run, c
 			await session.async_set_variable(name, value)
 	run_iterm(_run)
 	if use_json:
-		click.echo(json.dumps({'ok': True, 'name': name, 'scope': scope}))
+		click.echo(json_dumps({'ok': True, 'name': name, 'scope': scope}))
 	else:
 		success_echo(f"Set: {name} ({scope})", quiet=quiet)
 
@@ -219,7 +218,7 @@ def var_list(scope, session_id, tab_id, window_id, use_json):
 
 	result = run_iterm(_run) or {}
 	if use_json:
-		click.echo(json.dumps(result, indent=2, default=str))
+		click.echo(json_dumps(result, pretty=True, default=str))
 		return
 	for sc in scopes:
 		vals = result.get(sc, {})
@@ -361,7 +360,7 @@ def pref_set(key, value, quiet, dry_run, confirm, yes, use_json):
 		await iterm2.async_set_preference(connection, pref_key, typed)
 	run_iterm(_run)
 	if use_json:
-		click.echo(json.dumps({'ok': True, 'key': key}))
+		click.echo(json_dumps({'ok': True, 'key': key}))
 	else:
 		success_echo(f"Set: {key}", quiet=quiet)
 
@@ -377,7 +376,7 @@ def pref_list(filter_text, use_json):
 		return keys
 	keys = run_iterm(_run) or []
 	if use_json:
-		click.echo(json.dumps(keys))
+		click.echo(json_dumps(keys))
 	else:
 		for k in keys:
 			click.echo(k)
@@ -417,7 +416,7 @@ def pref_tmux(key, value, quiet):
 	if key and value:
 		success_echo(f"Set: {key}", quiet=quiet)
 	elif isinstance(result, dict):
-		click.echo(json.dumps(result, indent=2))
+		click.echo(json_dumps(result, pretty=True))
 
 
 # ── Broadcast ─────────────────────────────────────────────────────────────
@@ -599,7 +598,7 @@ def broadcast_send(text, newline, use_json, on_dead, force_protected, force_lock
 
 	results = run_iterm(_run) or []
 	if use_json:
-		click.echo(json.dumps(results, indent=2))
+		click.echo(json_dumps(results, pretty=True))
 	else:
 		ok_count = sum(1 for r in results if r['ok'])
 		click.echo(f"Sent to {ok_count}/{len(results)} session(s).")
@@ -713,7 +712,7 @@ def broadcast_list(use_json):
 		]
 	domains = run_iterm(_run) or []
 	if use_json:
-		click.echo(json.dumps(domains, indent=2))
+		click.echo(json_dumps(domains, pretty=True))
 		return
 	if not domains:
 		click.echo("No broadcast domains.")

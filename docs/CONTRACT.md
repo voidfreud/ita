@@ -81,6 +81,8 @@ explicit) — these are documented per-command and never expand the fallback.
   - NUL (`\x00`), BEL (`\x07`), raw control bytes.
   - Python tracebacks (raw or formatted). Tracebacks are `stderr`-only and only when `ITA_DEBUG=1`.
 
+**JSON encoding (#296).** All JSON emitted on stdout is encoded via a single helper `_envelope.json_dumps` with stable defaults: `sort_keys=True`, `ensure_ascii=False`, compact `separators=(',', ':')`. Pretty-printed (2-space indent) output is opt-in via `pretty=True` or `ITA_JSON_PRETTY=1` — never the default, since compact output is what line-oriented agents parse.
+
 Issues codified: #296, #318, #331, #327.
 
 ---

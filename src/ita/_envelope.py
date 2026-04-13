@@ -17,6 +17,7 @@ See docs/CONTRACT.md §3 (output), §4 (envelope), §6 (exit codes), §14 (invar
 """
 import functools
 import json
+import os
 import sys
 import time
 from typing import Any
@@ -24,6 +25,26 @@ from typing import Any
 import click
 
 SCHEMA_VERSION = "ita/1"
+
+
+def json_dumps(obj: Any, *, pretty: bool | None = None, default=None) -> str:
+	"""Canonical JSON encoding for ita (#296, CONTRACT §3/§4).
+
+	All JSON emitted on stdout MUST go through this helper so agents parsing
+	across commands see one shape:
+	  - `sort_keys=True` — deterministic key order.
+	  - `ensure_ascii=False` — UTF-8 preserved (prompts, names, paths).
+	  - Compact separators by default; `pretty=True` (or `ITA_JSON_PRETTY=1`)
+		switches to 2-space indent for human eyes.
+
+	`default` is forwarded for non-JSON-native values (e.g. Click `Path`).
+	"""
+	if pretty is None:
+		pretty = os.environ.get('ITA_JSON_PRETTY', '') == '1'
+	if pretty:
+		return json.dumps(obj, sort_keys=True, indent=2, ensure_ascii=False, default=default)
+	return json.dumps(obj, sort_keys=True, separators=(',', ':'),
+					  ensure_ascii=False, default=default)
 
 # Mode-independent exit codes (CONTRACT §6). Identical in plain, --json, and
 # --json-stream modes. rc=1 is reserved for uncaught exceptions only.
@@ -99,7 +120,7 @@ def emit_envelope(
 		if mutator:
 			envelope["state_before"] = state_before
 			envelope["state_after"] = state_after
-		click.echo(json.dumps(envelope), nl=True)
+		click.echo(json_dumps(envelope), nl=True)
 	else:
 		if not ok and error is not None:
 			click.echo(f"ita: {error.get('reason', error.get('code', 'error'))}", err=True)

@@ -1,10 +1,10 @@
 # src/_output.py
 """Output reading commands: read. Shared helpers exported for _stream, _query."""
-import json
 import re
 import click
 import iterm2
 from ._core import (cli, run_iterm, resolve_session, strip, last_non_empty_index, read_session_lines, _is_prompt_line, _SENTINEL_RE)
+from ._envelope import json_dumps
 
 
 def _clean_lines(contents) -> list[str]:
@@ -104,7 +104,7 @@ def read(lines_arg, lines_opt, use_json, read_all, ids_only, scrollback,
 			for sid in data:
 				click.echo(sid)
 		elif use_json:
-			click.echo(json.dumps(data, ensure_ascii=False))
+			click.echo(json_dumps(data))
 		else:
 			for sid, sd in data.items():
 				click.echo(f"--- {sid} ---")
@@ -118,6 +118,6 @@ def read(lines_arg, lines_opt, use_json, read_all, ids_only, scrollback,
 	data = run_iterm(_run)
 	filtered = _filter(data['lines'])
 	if use_json:
-		click.echo(json.dumps({**data, 'lines': filtered}, ensure_ascii=False))
+		click.echo(json_dumps({**data, 'lines': filtered}))
 	else:
 		click.echo('\n'.join(filtered))

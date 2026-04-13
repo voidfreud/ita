@@ -2,7 +2,6 @@
 """Input commands: run (atomic), send, inject, key.
 File is named _send.py rather than _io.py to avoid collision with Python's built-in _io module."""
 import asyncio
-import json
 import sys
 import time
 import uuid
@@ -10,7 +9,7 @@ import click
 import iterm2
 from ._core import (cli, run_iterm, resolve_session, strip, PROMPT_CHARS,
 	last_non_empty_index, check_protected, session_writelock, _is_prompt_line)
-from ._envelope import ita_command, ItaError
+from ._envelope import ita_command, ItaError, json_dumps
 from ._lock import resolve_force_flags
 
 
@@ -180,7 +179,7 @@ def run(cmd, timeout, lines, tail_n, use_json, persist, check_integration, stdin
 			return await _has_shell_integration(session)
 		active = run_iterm(_probe)
 		if use_json:
-			click.echo(json.dumps({'shell_integration': bool(active)}))
+			click.echo(json_dumps({'shell_integration': bool(active)}))
 		else:
 			click.echo('active' if active else 'missing')
 		sys.exit(0 if active else 1)
