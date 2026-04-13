@@ -14,8 +14,8 @@ from click.testing import CliRunner
 
 sys.path.insert(0, str(Path(__file__).parent.parent / 'src'))
 
-import _session  # noqa: E402
-from _core import cli  # noqa: E402
+from ita import _session  # noqa: E402
+from ita._core import cli  # noqa: E402
 
 
 def _fake_session(sid='SID-1', name='', tab_id='TAB-1', window_id='WIN-1'):

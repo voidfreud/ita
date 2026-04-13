@@ -4,7 +4,7 @@ import json
 import re
 import click
 import iterm2
-from _core import cli, run_iterm, resolve_session
+from ._core import cli, run_iterm, resolve_session
 
 THEME_SHORTCUTS = {
 	# 'red' and 'green' are handled specially: no built-in iTerm2 preset

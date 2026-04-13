@@ -9,7 +9,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).parent))
 from conftest import ita
 
-ITA = Path(__file__).parent.parent / 'src' / 'ita.py'
+ITA = ['python', '-m', 'ita']
 pytestmark = [pytest.mark.integration, pytest.mark.regression]
 
 
@@ -67,7 +67,7 @@ def test_r95_pref_bool_true_false():
 def test_r97_session_new_uuid_no_quotes():
 	"""#97: on session-new must output a plain UUID without surrounding quotes."""
 	proc = subprocess.Popen(
-		['uv', 'run', str(ITA), 'on', 'session-new', '-t', '10'],
+		['uv', 'run', *ITA, 'on', 'session-new', '-t', '10'],
 		capture_output=True, text=True,
 	)
 	time.sleep(0.3)

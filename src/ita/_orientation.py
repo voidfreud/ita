@@ -3,7 +3,7 @@
 import json
 import click
 import iterm2
-from _core import cli, run_iterm, strip, __version__, \
+from ._core import cli, run_iterm, strip, __version__, \
 	add_protected, remove_protected, get_protected, resolve_session, \
 	parse_filter, match_filter
 

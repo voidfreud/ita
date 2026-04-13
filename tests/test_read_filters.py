@@ -7,7 +7,7 @@ from click.testing import CliRunner
 
 sys.path.insert(0, str(Path(__file__).parent.parent / 'src'))
 
-from _output import _is_prompt_line, read  # noqa: E402
+from ita._output import _is_prompt_line, read  # noqa: E402
 
 
 def _make_filter(after_row=None, since_prompt=False, grep_rx=None):

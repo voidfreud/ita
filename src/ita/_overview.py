@@ -7,8 +7,8 @@ metadata, and optional trailing output lines. Token-compact by default."""
 import json
 import click
 import iterm2
-from _core import cli, run_iterm, strip, parse_filter, match_filter
-from _output import _clean_lines
+from ._core import cli, run_iterm, strip, parse_filter, match_filter
+from ._output import _clean_lines
 
 
 async def _tail_lines(session, n: int) -> list[str]:

@@ -6,13 +6,13 @@ Run with: uv run --with pytest --with click --with iterm2 pytest tests/test_inte
 import subprocess
 from pathlib import Path
 
-ITA_SCRIPT = Path(__file__).parent.parent / 'src' / 'ita.py'
+ITA_SCRIPT = ['python', '-m', 'ita']
 
 
 def run_ita(*args):
     """Run ita command and return (returncode, stdout, stderr)."""
     result = subprocess.run(
-        ['uv', 'run', str(ITA_SCRIPT)] + list(args),
+        ['uv', 'run', *ITA_SCRIPT] + list(args),
         capture_output=True, text=True, timeout=30)
     return result.returncode, result.stdout.strip(), result.stderr.strip()
 

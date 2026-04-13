@@ -8,7 +8,7 @@ import time
 import uuid
 import click
 import iterm2
-from _core import (cli, run_iterm, resolve_session, strip, PROMPT_CHARS,
+from ._core import (cli, run_iterm, resolve_session, strip, PROMPT_CHARS,
 	last_non_empty_index, check_protected, session_writelock, _is_prompt_line)
 
 

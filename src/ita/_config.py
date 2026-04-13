@@ -3,7 +3,7 @@
 import json
 import click
 import iterm2
-from _core import cli, run_iterm, resolve_session, confirm_or_skip, success_echo
+from ._core import cli, run_iterm, resolve_session, confirm_or_skip, success_echo
 
 
 # ── Variables ─────────────────────────────────────────────────────────────

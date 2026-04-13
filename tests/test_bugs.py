@@ -172,7 +172,7 @@ def test_i1_repl_no_traceback_on_bad_command(session):
 	crash with a Python traceback. It should handle the error gracefully."""
 	proc = subprocess.run(
 		# Note: repl does not accept -s; session targeting via repl is a pending CLI design issue.
-		['uv', 'run', str(Path(__file__).parent.parent / 'src' / 'ita.py'),
+		['uv', 'run', 'python', '-m', 'ita',
 		 'repl'],
 		input='status --json\nexit\n',
 		capture_output=True, text=True, timeout=15,
@@ -229,7 +229,7 @@ def test_o1_watch_no_duplicate_lines(session):
 	time.sleep(0.2)
 	# Now start watch — it should observe the next command's output, not re-emit history
 	proc = subprocess.Popen(
-		['uv', 'run', str(Path(__file__).parent.parent / 'src' / 'ita.py'),
+		['uv', 'run', 'python', '-m', 'ita',
 		 'watch', '-s', session, '--timeout', '4'],
 		stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
 	)
@@ -334,7 +334,7 @@ def test_on_session_end_fires_and_reports_id():
 	assert r_new.returncode == 0
 	fresh_sid = r_new.stdout.strip().split('\t')[-1]
 	proc = subprocess.Popen(
-		['uv', 'run', str(Path(__file__).parent.parent / 'src' / 'ita.py'),
+		['uv', 'run', 'python', '-m', 'ita',
 		 'on', 'session-end', '-s', fresh_sid, '-t', '10'],
 		stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
 	)

@@ -28,7 +28,7 @@ def _cmd_snapshot_path(cmd_path: str) -> Path:
 def _run_json(cmd_path: str, extra_args: list[str]) -> dict:
 	parts = cmd_path.split()
 	result = subprocess.run(
-		["uv", "run", str(ITA)] + parts + ["--json"] + extra_args,
+		["uv", "run", *ITA] + parts + ["--json"] + extra_args,
 		capture_output=True, text=True, timeout=30,
 	)
 	if result.returncode != 0:

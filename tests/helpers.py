@@ -6,7 +6,14 @@ import json
 import subprocess
 from pathlib import Path
 
-ITA = Path(__file__).parent.parent / 'src' / 'ita.py'
+# Canonical ita invocation for tests: run the installed package via
+# `uv run python -m ita`. Single source of truth — any test that shells
+# out to ita should use the `ita(...)` helper below, not a hardcoded path.
+REPO_ROOT = Path(__file__).parent.parent
+ITA_CMD = ['uv', 'run', '--project', str(REPO_ROOT), 'python', '-m', 'ita']
+# Back-compat: some tests import `ITA` from helpers/conftest and build their
+# own subprocess argv around it. Keep ITA as a list so callers can splat it.
+ITA = ['python', '-m', 'ita']
 
 TEST_SESSION_PREFIX = 'ita-test-'
 
@@ -14,7 +21,7 @@ TEST_SESSION_PREFIX = 'ita-test-'
 def ita(*args, timeout=30):
 	"""Run an ita subcommand. Returns CompletedProcess."""
 	return subprocess.run(
-		['uv', 'run', str(ITA)] + list(args),
+		ITA_CMD + list(args),
 		capture_output=True, text=True, timeout=timeout,
 	)
 

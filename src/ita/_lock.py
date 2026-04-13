@@ -11,7 +11,7 @@ block, so a crashed invocation can't leave a permanent lock. See _core.py for
 the lock API and stale-PID reclaim logic.
 """
 import click
-from _core import (
+from ._core import (
 	cli, run_iterm, resolve_session,
 	acquire_writelock, release_writelock, get_writelocks, _pid_alive,
 	confirm_or_skip, success_echo,

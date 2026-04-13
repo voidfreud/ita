@@ -10,3 +10,5 @@ ita-main.zip
 .pytest_cache/
 .claude/
 *.egg-info/
+dist/
+build/
