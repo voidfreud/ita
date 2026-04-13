@@ -1,11 +1,12 @@
 # src/_orientation.py
 """Orientation commands: status, focus, version."""
+import asyncio
 import json
 import click
 import iterm2
 from ._core import cli, run_iterm, strip, __version__, \
 	add_protected, remove_protected, get_protected, resolve_session, \
-	parse_filter, match_filter
+	parse_filter, match_filter, snapshot
 from ._envelope import ita_command
 from ._state import derive_state
 
@@ -18,29 +19,39 @@ from ._state import derive_state
 def status(use_json, ids_only, fast, filter_expr):
 	"""List all sessions: name | short-id | process | path"""
 	async def _run(connection):
-		app = await iterm2.async_get_app(connection)
+		# Single full sweep + parallel per-session fetches (#300/#301).
+		snap = await snapshot(connection)
+		app = snap.app
+
+		async def _per_session(session):
+			if fast:
+				proc = path = ''
+				state = await derive_state(app, session)
+			else:
+				proc, path, state = await asyncio.gather(
+					session.async_get_variable('jobName'),
+					session.async_get_variable('path'),
+					derive_state(app, session),
+				)
+				proc = strip(proc or '')
+				path = strip(path or '')
+			return proc, path, state
+
+		results = (await asyncio.gather(*(_per_session(s) for s in snap.sessions))
+			if snap.sessions else [])
+
 		sessions = []
-		for window in app.terminal_windows:
-			for tab in window.tabs:
-				for session in tab.sessions:
-					# --fast skips the two async_get_variable round-trips per
-					# session — on a 40-session app that's ~80 IPC calls saved.
-					if fast:
-						proc = ''
-						path = ''
-					else:
-						proc = strip(await session.async_get_variable('jobName') or '')
-						path = strip(await session.async_get_variable('path') or '')
-					state = await derive_state(app, session)
-					sessions.append({
-						'session_id': session.session_id,
-						'session_name': strip(session.name or ''),
-						'process': proc,
-						'path': path,
-						'window_id': window.window_id,
-						'tab_id': tab.tab_id,
-						'state': state,
-					})
+		for s, (proc, path, state) in zip(snap.sessions, results):
+			sessions.append({
+				'session_id': s.session_id,
+				'session_name': snap.fresh_names.get(s.session_id, '')
+					or strip(s.name or ''),
+				'process': proc,
+				'path': path,
+				'window_id': snap.window_of[s.session_id].window_id,
+				'tab_id': snap.tab_of[s.session_id].tab_id,
+				'state': state,
+			})
 		return sessions
 
 	sessions = run_iterm(_run) or []

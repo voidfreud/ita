@@ -118,6 +118,35 @@ Every `--json` mutator (any command that changes iTerm2 state) emits a single JS
 
 **Read-only** commands (`status`, `overview`, `get-prompt`, `read`) MAY omit the envelope and return their payload directly — but they MUST still be valid JSON in `--json` mode.
 
+**`overview --json` is the canonical world model (#276).** It is the single read an agent should issue to answer "what exists right now":
+
+```json
+{
+  "windows": [
+    {
+      "window_id": "<uuid>",
+      "tabs": [
+        {
+          "tab_id": "<uuid>",
+          "tmux_window_id": null,
+          "sessions": [
+            {"session_id": "<uuid>", "session_name": "main",
+             "process": "zsh", "path": "/Users/me",
+             "window_id": "<uuid>", "tab_id": "<uuid>",
+             "is_current": true, "state": "ready", "lines": ["$ "]}
+          ]
+        }
+      ]
+    }
+  ],
+  "tmux": [
+    {"connection_id": "...", "owning_session_id": "<uuid>"}
+  ]
+}
+```
+
+One full app sweep per invocation (#300) — never call `status` and `overview` together.
+
 **Inner-process exit codes (Phase 3 envelope-exit-taxonomy clarification).** Commands that wrap a foreign process (`run`, `run --stdin`) report **two** exit codes that must not be conflated:
 - `data.exit_code` — the inner command's own rc (may be `null` when shell integration is missing, per #144).
 - The envelope's top-level `error` + ita's process exit code — ita's own success/failure per §6.
@@ -398,6 +427,7 @@ PRs that add any of the following will be closed with a pointer here:
 | #296 | §3, §11 |
 | #316, #318, #322 | §3, §4 |
 | #327, #331 | §3, §9 |
+| #276, #300, #301, #302 | §4 (overview), §7 |
 
 ---
 

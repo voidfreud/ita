@@ -6,7 +6,7 @@ import click
 import iterm2
 from ._core import (cli, run_iterm, resolve_session, strip, read_session_lines,
 	check_protected, _all_sessions, parse_filter, match_filter,
-	session_writelock, _SENTINEL_RE, _fresh_name, next_free_name)
+	session_writelock, _SENTINEL_RE, _fresh_name, next_free_name, snapshot)
 from ._envelope import ita_command, ItaError, json_dumps
 from ._lock import resolve_force_flags
 
@@ -82,13 +82,13 @@ def new(new_window, profile, session_name, reuse, replace, cwd, run_cmd, as_json
 	from ._readiness import _probe, _parse_require, _POLL_INTERVAL
 	required_flags = set() if no_wait else _parse_require(wait_reqs)
 	async def _run(connection):
-		app = await iterm2.async_get_app(connection)
-		all_sess = _all_sessions(app)
-		# Build existing-names set from *fresh* variable reads so names set by
-		# a prior ita process that haven't yet propagated to the app snapshot
-		# still participate in uniqueness / auto-naming checks (#160).
-		fresh_pairs = [(s, await _fresh_name(s)) for s in all_sess]
-		existing_names = {n for _, n in fresh_pairs if n}
+		# Snapshot batches the per-session `_fresh_name` reads in parallel
+		# (#300/#302) — replaces the old serial loop that paid one RPC per
+		# session just to enumerate existing names.
+		snap = await snapshot(connection)
+		app = snap.app
+		fresh_pairs = [(s, snap.fresh_names.get(s.session_id, '')) for s in snap.sessions]
+		existing_names = snap.names()
 		# If --name given, check uniqueness / reuse / replace
 		if session_name:
 			for s, n in fresh_pairs:

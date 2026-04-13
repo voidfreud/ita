@@ -1,5 +1,6 @@
 # src/_layout.py
 """Layout commands: window group."""
+import asyncio
 import json
 import click
 import iterm2
@@ -26,11 +27,14 @@ def window_new(window_name, profile):
 	absent, the window is titled with the lowest free `w<N>` counter."""
 	async def _run(connection):
 		app = await iterm2.async_get_app(connection)
-		existing_titles: set[str] = set()
-		for w in app.terminal_windows:
-			title = await w.async_get_variable('title') or ''
-			if title:
-				existing_titles.add(title.replace('\x00', '').strip())
+		# Parallel title fetch (#301) — replaces serial loop.
+		wins = list(app.terminal_windows)
+		titles = await asyncio.gather(
+			*(w.async_get_variable('title') for w in wins)
+		) if wins else []
+		existing_titles: set[str] = {
+			t.replace('\x00', '').strip() for t in titles if t
+		}
 		if window_name and window_name in existing_titles:
 			raise ItaError("bad-args",
 				f"name {window_name!r} already taken; pick another name.")
