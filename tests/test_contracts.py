@@ -238,9 +238,6 @@ def test_session_resolution_parity(cmd, session, shared_session):
 	"""ita <cmd> -s <NAME> and -s <UUID-prefix> yield the same outcome."""
 	_skip_if_gui(cmd)
 	# Get both the name and a UUID prefix for the shared_session
-	from pathlib import Path
-	ITA = Path(__file__).parent.parent / 'src' / 'ita.py'
-
 	r_info = ita('session', 'info', '-s', shared_session, '--json', timeout=10)
 	if r_info.returncode != 0:
 		pytest.skip("Could not fetch session info for parity test")

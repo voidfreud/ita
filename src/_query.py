@@ -21,13 +21,13 @@ def wait(pattern, fixed_string, timeout, use_json, session_id):
 	matcher = None
 	if pattern:
 		if fixed_string:
-			matcher = lambda text: pattern in text
+			def matcher(text): return pattern in text
 		else:
 			try:
 				rx = re.compile(pattern)
 			except re.error as e:
 				raise click.ClickException(f"Invalid regex {pattern!r}: {e}") from e
-			matcher = lambda text: rx.search(text) is not None
+			def matcher(text): return rx.search(text) is not None
 
 	async def _run(connection):
 		session = await resolve_session(connection, session_id)

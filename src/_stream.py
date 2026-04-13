@@ -49,7 +49,6 @@ async def _stream_session(session, json_stream: bool, prefix: str = '', name: st
 					# Emit lines that appear in the new snapshot but weren't in prev.
 					# Using set difference handles clears/rewrites/scrolls correctly;
 					# slice-based growth assumption broke when content was overwritten.
-					new_set = frozenset(snapshot)
 					new_lines = [ln for ln in snapshot if ln not in prev_set]
 				if new_lines:
 					if json_stream:

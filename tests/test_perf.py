@@ -59,7 +59,7 @@ def perf_session():
 
 def test_perf_status_json(benchmark, perf_session):
 	"""ita status --json  p50 < 100 ms, p99 < 300 ms"""
-	result = benchmark(_run, 'status', '--json')
+	benchmark(_run, 'status', '--json')
 	p50 = benchmark.stats.median
 	p99 = _p99(benchmark.stats)
 	assert p50 < 0.100, f"status --json p50 too slow: {p50*1000:.1f}ms (budget 100ms)"
@@ -68,7 +68,7 @@ def test_perf_status_json(benchmark, perf_session):
 
 def test_perf_version(benchmark):
 	"""ita version  p50 < 50 ms  (pure local read — no iTerm2 API call expected)."""
-	result = benchmark(_run, 'version')
+	benchmark(_run, 'version')
 	p50 = benchmark.stats.median
 	# If this exceeds 50ms it almost certainly means ita is making an API call
 	# on 'version', which is a candidate bug.
@@ -144,7 +144,7 @@ def test_perf_new_close(benchmark):
 
 def test_perf_tab_list_json(benchmark, perf_session):
 	"""ita tab list --json  p50 < 200 ms"""
-	result = benchmark(_run, 'tab', 'list', '--json')
+	benchmark(_run, 'tab', 'list', '--json')
 	p50 = benchmark.stats.median
 	assert p50 < 0.200, f"tab list --json p50 too slow: {p50*1000:.1f}ms (budget 200ms)"
 

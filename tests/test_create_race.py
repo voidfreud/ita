@@ -216,7 +216,7 @@ def test_overview_stable_under_parallel_create():
 		ov_future = ex.submit(_overview)
 		create_futures = [ex.submit(_new_auto) for _ in range(5)]
 		ov_future.result()
-		creates = [f.result() for f in as_completed(create_futures)]
+		[f.result() for f in as_completed(create_futures)]
 
 	assert overview_results, "Overview future never resolved"
 	r_ov = overview_results[0]

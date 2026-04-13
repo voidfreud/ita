@@ -277,8 +277,10 @@ def test_concurrent_run_different_sessions():
 
 		t1 = threading.Thread(target=do_run, args=(s1, 'a'))
 		t2 = threading.Thread(target=do_run, args=(s2, 'b'))
-		t1.start(); t2.start()
-		t1.join(timeout=25); t2.join(timeout=25)
+		t1.start()
+		t2.start()
+		t1.join(timeout=25)
+		t2.join(timeout=25)
 
 		assert 'a' in results, "Thread A never completed"
 		assert 'b' in results, "Thread B never completed"

@@ -22,7 +22,7 @@ def test_strip_empty_string():
 
 # ── Hypothesis property tests ─────────────────────────────────────────────────
 
-from hypothesis import given, settings, strategies as st
+from hypothesis import given, settings, strategies as st  # noqa: E402
 
 
 def _is_float(s):

@@ -262,7 +262,7 @@ def test_trust_17_bulk_clear_refuses_protected(protected_session):
 	(b) Issue #283: bulk clear --all bypasses protection check entirely.
 	(c) Protected session is NOT cleared; rc reflects partial failure or refuses outright.
 	"""
-	r = ita('clear', '--all')
+	ita('clear', '--all')
 	# Even if the bulk op partially succeeds on other sessions, the protected one
 	# must not be wiped.  Best signal: rc != 0 (refused) or explicit warning.
 	# We also verify the session still exists.

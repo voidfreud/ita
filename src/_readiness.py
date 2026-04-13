@@ -14,7 +14,6 @@ Flags polled:
 """
 import asyncio
 import json
-import re
 import time
 import click
 import iterm2

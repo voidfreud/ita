@@ -164,7 +164,7 @@ class TestDoctor:
 		r = ita('doctor')
 		assert r.returncode == 0
 		line = next(
-			(l for l in r.stdout.splitlines() if 'Python API responding' in l), None
+			(ln for ln in r.stdout.splitlines() if 'Python API responding' in ln), None
 		)
 		assert line is not None, "'Python API responding' check not in output"
 		assert line.startswith('✓'), f"Expected ✓, got: {line!r}"
@@ -175,7 +175,7 @@ class TestDoctor:
 		r = ita('doctor')
 		assert r.returncode == 0
 		line = next(
-			(l for l in r.stdout.splitlines() if 'iTerm2 version' in l), None
+			(ln for ln in r.stdout.splitlines() if 'iTerm2 version' in ln), None
 		)
 		assert line is not None
 		# When it passes it should show e.g. "✓ iTerm2 version (3.5.x)"
@@ -202,6 +202,6 @@ class TestDoctor:
 		r1 = ita('doctor')
 		r2 = ita('doctor')
 		# Same lines, same symbols (not exact match — version numbers OK to vary)
-		lines1 = [l.split('(')[0].strip() for l in r1.stdout.strip().splitlines()]
-		lines2 = [l.split('(')[0].strip() for l in r2.stdout.strip().splitlines()]
+		lines1 = [ln.split('(')[0].strip() for ln in r1.stdout.strip().splitlines()]
+		lines2 = [ln.split('(')[0].strip() for ln in r2.stdout.strip().splitlines()]
 		assert lines1 == lines2
