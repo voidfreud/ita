@@ -55,6 +55,9 @@ async def _session_records(connection):
 	return records
 
 
+_NEW_WAIT_DEFAULT = 'shell_alive,writable'
+
+
 @cli.command()
 @click.option('--window', 'new_window', is_flag=True, help='Create new window instead of tab')
 @click.option('--profile', default=None, help='Profile name')
@@ -64,10 +67,21 @@ async def _session_records(connection):
 @click.option('--cwd', default=None, help='Working directory for the new session')
 @click.option('--run', 'run_cmd', default=None, help='Command to fire immediately after creation (non-blocking)')
 @click.option('--json', 'as_json', is_flag=True, help='Return full session object as JSON')
-def new(new_window, profile, session_name, reuse, replace, cwd, run_cmd, as_json):
-	"""Create new tab (or window). Returns name (stdout) and session ID."""
+@click.option('--wait', 'wait_reqs', default=_NEW_WAIT_DEFAULT, show_default=True,
+	help='Comma-separated readiness flags to satisfy before returning (#250).')
+@click.option('--no-wait', 'no_wait', is_flag=True, help='Return immediately without waiting for session readiness.')
+def new(new_window, profile, session_name, reuse, replace, cwd, run_cmd, as_json, wait_reqs, no_wait):
+	"""Create new tab (or window). Returns name (stdout) and session ID.
+
+	By default waits until the session is alive and writable before returning
+	(--wait=shell_alive,writable). Pass --no-wait to skip the wait entirely,
+	or --wait=<flags> to customise which readiness conditions must be met.
+	Valid flags: shell_alive, prompt_visible, shell_integration_active,
+	jobName_populated, writable."""
 	if reuse and replace:
 		raise click.ClickException("--reuse and --replace are mutually exclusive.")
+	from _readiness import _probe, _parse_require, _POLL_INTERVAL
+	required_flags = set() if no_wait else _parse_require(wait_reqs)
 	async def _run(connection):
 		app = await iterm2.async_get_app(connection)
 		all_sess = _all_sessions(app)
@@ -133,6 +147,17 @@ def new(new_window, profile, session_name, reuse, replace, cwd, run_cmd, as_json
 		# Block briefly until the name is visible via the variable API so the
 		# very next ita invocation sees it (#160).
 		await _wait_name_visible(session, name)
+		# --wait: poll readiness flags before returning (#250).
+		if required_flags:
+			import asyncio as _asyncio
+			deadline = _asyncio.get_event_loop().time() + 5.0
+			while True:
+				flags = await _probe(session)
+				if all(flags.get(f, False) for f in required_flags):
+					break
+				if _asyncio.get_event_loop().time() >= deadline:
+					break
+				await _asyncio.sleep(_POLL_INTERVAL)
 		# --cwd: send `cd <dir>` as a shell command. Using async_send_text is
 		# the simplest path that works with any profile; profile-level working
 		# directory would require custom-profile mutation which is heavier.
@@ -275,8 +300,6 @@ def name(title, session_id, filter_expr, all_flag, force, dry_run, quiet):
 	if not title.strip():
 		raise click.ClickException("Name cannot be empty")
 	bulk = bool(filter_expr or all_flag)
-	if not confirm_or_skip(f"rename session to {title!r}", dry_run=dry_run, yes=force):
-		return
 	if not bulk:
 		renamed_id = None
 		async def _run(connection):
@@ -362,7 +385,8 @@ def restart(session_id, quiet, force):
 @click.option('-q', '--quiet', is_flag=True, help='Suppress confirmation message')
 def resize(cols, rows, session_id, force, dry_run, quiet):
 	"""Resize session pane."""
-	if not confirm_or_skip(f"resize session to {cols}x{rows}", dry_run=dry_run, yes=force):
+	if dry_run:
+		click.echo(f"Would: resize session to {cols}x{rows}")
 		return
 	async def _run(connection):
 		session = await resolve_session(connection, session_id)
