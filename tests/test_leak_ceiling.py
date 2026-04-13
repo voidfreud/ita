@@ -38,5 +38,41 @@ def test_atexit_swallows_errors(monkeypatch):
 		raise RuntimeError("boom")
 
 	monkeypatch.setattr(conftest, '_open_test_sessions', _boom)
+	monkeypatch.setattr(conftest, '_close_orphan_default_windows', _boom)
 	# Must not raise
 	conftest._atexit_close_test_sessions()
+
+
+def test_window_helpers_present():
+	"""#348: window-leak helpers must be wired into helpers + conftest."""
+	import helpers
+	import tests.conftest as conftest
+	for name in ('_all_window_ids', '_close_window',
+				 '_orphan_default_windows', '_close_orphan_default_windows'):
+		assert hasattr(helpers, name), f"helpers.{name} missing"
+		assert hasattr(conftest, name), f"conftest.{name} re-export missing"
+
+
+def test_orphan_window_heuristic_narrow(monkeypatch):
+	"""#348: only single-tab + single-Default-session windows count as orphans.
+	Multi-tab windows or windows with non-Default sessions must NOT be flagged
+	(otherwise we'd close user windows)."""
+	import json as _json
+	from unittest import mock
+	import helpers
+
+	multi_tab = {'windows': [{'window_id': 'w1', 'tabs': [
+		{'sessions': [{'session_name': 'Default'}]},
+		{'sessions': [{'session_name': 'Default'}]},
+	]}]}
+	user = {'windows': [{'window_id': 'w2', 'tabs': [
+		{'sessions': [{'session_name': 'my-work'}]},
+	]}]}
+	orphan = {'windows': [{'window_id': 'w3', 'tabs': [
+		{'sessions': [{'session_name': 'Default (-zsh)'}]},
+	]}]}
+
+	for fixture, expected in [(multi_tab, []), (user, []), (orphan, ['w3'])]:
+		fake = mock.Mock(returncode=0, stdout=_json.dumps(fixture))
+		monkeypatch.setattr(helpers, 'ita', lambda *a, **kw: fake)
+		assert helpers._orphan_default_windows() == expected

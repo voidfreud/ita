@@ -15,6 +15,8 @@ import pytest
 from helpers import (  # noqa: F401
 	ITA, ita, ita_ok, _extract_sid, _all_session_ids,
 	_open_test_sessions, _close_test_sessions,
+	_all_window_ids, _close_window, _close_orphan_default_windows,
+	_orphan_default_windows,
 	TEST_SESSION_PREFIX,
 )
 
@@ -25,11 +27,19 @@ from helpers import (  # noqa: F401
 
 def _atexit_close_test_sessions():
 	"""Last-ditch cleanup. Idempotent. Best-effort: swallows all errors so
-	atexit can never itself crash the interpreter."""
+	atexit can never itself crash the interpreter.
+
+	Closes test sessions AND orphan default windows (#348) — iTerm2 spawns
+	a default shell when an empty window loses its session, so closing the
+	session leaves the window. Sweeping orphans here catches that gap."""
 	try:
 		survivors = _open_test_sessions()
 		if survivors:
 			_close_test_sessions(survivors)
+	except Exception:
+		pass
+	try:
+		_close_orphan_default_windows()
 	except Exception:
 		pass
 
@@ -51,20 +61,35 @@ def _count_test_sessions() -> int:
 		return 0
 
 
+def _count_orphan_windows() -> int:
+	try:
+		return len(_orphan_default_windows())
+	except Exception:
+		return 0
+
+
 def pytest_runtest_teardown(item, nextitem):
-	"""After every test, check the leak ceiling. Hard-abort the run if
-	exceeded — emergency-close survivors first so the abort itself doesn't
-	leave the machine in a worse state."""
-	count = _count_test_sessions()
-	if count > LEAK_CEILING:
+	"""After every test, check the leak ceiling on BOTH ita-test-* sessions
+	AND orphan default windows (#348). Hard-abort if either exceeded —
+	emergency-close survivors first so the abort itself doesn't leave the
+	machine in a worse state."""
+	sess_count = _count_test_sessions()
+	win_count = _count_orphan_windows()
+	if sess_count > LEAK_CEILING or win_count > LEAK_CEILING:
 		try:
 			_close_test_sessions(_open_test_sessions())
 		except Exception:
 			pass
+		try:
+			_close_orphan_default_windows()
+		except Exception:
+			pass
 		pytest.exit(
-			f"\n\n*** LEAK CEILING EXCEEDED: {count} ita-test-* sessions open "
-			f"(ceiling={LEAK_CEILING}) ***\n"
-			f"A test created sessions without cleaning them up. The run is "
+			f"\n\n*** LEAK CEILING EXCEEDED ***\n"
+			f"  ita-test-* sessions: {sess_count}\n"
+			f"  orphan default windows: {win_count}\n"
+			f"  ceiling per kind: {LEAK_CEILING}\n"
+			f"A test created objects without cleaning them up. The run is "
 			f"aborted to protect the host machine. Last test: {item.nodeid}\n",
 			returncode=2,
 		)
@@ -77,15 +102,24 @@ from fixtures import session_factory, broadcast_domain, protected_session, clean
 @pytest.fixture
 def session(request):
 	"""Fresh iTerm2 session per test. Named 'ita-test-<testname>' for leak detection.
-	Guaranteed teardown via finalizer (not yield) so it runs even on hard failures."""
+	Guaranteed teardown via finalizer (not yield) so it runs even on hard failures.
+
+	#348: snapshots windows BEFORE create; if `ita new` produced a NEW window,
+	closes that window in teardown too (otherwise iTerm2 leaves an orphan
+	default-shell window behind when our session is closed).
+	"""
 	safe_name = (TEST_SESSION_PREFIX + request.node.name[:30]).replace(' ', '_')
+	windows_before = _all_window_ids()
 	r = ita('new', '--name', safe_name)
 	assert r.returncode == 0, f"Failed to create session: {r.stderr}"
 	sid = _extract_sid(r.stdout)
 	assert sid, "Session ID returned empty"
+	new_windows = _all_window_ids() - windows_before
 
 	def _teardown():
 		ita('close', '-s', sid, timeout=10)
+		for wid in new_windows:
+			_close_window(wid)
 
 	request.addfinalizer(_teardown)
 	return sid
@@ -93,14 +127,20 @@ def session(request):
 
 @pytest.fixture(scope='module')
 def shared_session(request):
-	"""Module-scoped session for read-only tests (faster than per-test)."""
+	"""Module-scoped session for read-only tests (faster than per-test).
+
+	#348: same window-tracking discipline as `session`."""
 	safe_name = (TEST_SESSION_PREFIX + 'shared-' + request.module.__name__[:20]).replace(' ', '_')
+	windows_before = _all_window_ids()
 	r = ita('new', '--name', safe_name)
 	assert r.returncode == 0, f"Failed to create module session: {r.stderr}"
 	sid = _extract_sid(r.stdout)
+	new_windows = _all_window_ids() - windows_before
 
 	def _teardown():
 		ita('close', '-s', sid, timeout=10)
+		for wid in new_windows:
+			_close_window(wid)
 
 	request.addfinalizer(_teardown)
 	return sid
@@ -108,23 +148,32 @@ def shared_session(request):
 
 @pytest.fixture(autouse=True, scope='session')
 def sweep_leaked_sessions():
-	"""Snapshot sessions before the run; clean up any new ones that survived after.
+	"""Snapshot sessions + windows before the run; clean up new ones after.
 
-	Pre-run: closes any ita-test-* sessions from a previous aborted run.
-	Post-run: closes any sessions that appeared DURING this run and weren't cleaned
-	          up by individual test teardowns (covers inline session creation too)."""
+	Pre-run: closes any ita-test-* sessions from a previous aborted run, plus
+	any orphan default windows (#348).
+	Post-run: closes any sessions or windows that appeared during the run."""
 	# Pre-run: close survivors from previous runs
 	old_survivors = _open_test_sessions()
 	if old_survivors:
 		_close_test_sessions(old_survivors)
-	# Snapshot: record which sessions existed BEFORE any test ran
-	baseline = _all_session_ids()
+	_close_orphan_default_windows()
+	# Snapshot: what existed BEFORE any test ran
+	baseline_sessions = _all_session_ids()
+	baseline_windows = _all_window_ids()
 	yield
-	# Post-run: close everything that appeared during the test run and is still open
-	after = _all_session_ids()
-	leaked = after - baseline
+	# Post-run: close everything that appeared during the test run
+	after_sessions = _all_session_ids()
+	leaked = after_sessions - baseline_sessions
 	if leaked:
 		_close_test_sessions(list(leaked))
+	# Window-leak sweep (#348): any window present now that wasn't pre-run is
+	# either an orphan or test-created. Close orphans by heuristic; user windows
+	# are protected because they don't match the "single-Default-session" shape.
+	after_windows = _all_window_ids()
+	new_windows = after_windows - baseline_windows
+	if new_windows:
+		_close_orphan_default_windows()
 
 
 def pytest_configure(config):
