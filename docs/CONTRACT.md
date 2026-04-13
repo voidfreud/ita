@@ -381,7 +381,7 @@ Iterated by `tests/test_contract_matrix.py` (parametrized invariant matrix, rule
 1. **Never lie to the caller.** No command reports success when its effect didn't happen. No envelope has `ok=true` with `error != null`.
 2. **No stdout pollution, no silent corruption of input.** Stdout obeys §3 in every mode (no ANSI in non-TTY, no NUL, no traceback). Commands that transmit caller-supplied text (`inject`, `send`) are UTF-8 end-to-end: every valid Unicode codepoint — including astral-plane chars above U+FFFF — survives verbatim. Un-encodable input (lone surrogates) fails loudly with `bad-args` (rc=6) rather than being silently mangled or replaced (#229).
 3. **Exit code matches envelope.** `ok=true ⇔ rc=0`. `ok=false ⇔ rc ∈ §6 \ {0}`. Identical across plain and JSON modes.
-4. **Protection, lock, and path-trust are never bypassed silently.** Every mutator is gated. Bulk paths enumerated and tested. Commands that read caller-supplied filesystem paths (`run --stdin`) validate that the path resolves (realpath, symlinks chased) under the caller's CWD; escape attempts via absolute path, `..`, or symlinks fail with `bad-args` (rc=6). Explicit opt-out flags (`--stdin-allow-outside-cwd`) are agent-side and never interactive (§1, §12). #325.
+4. **Protection, lock, path-trust, and input-trust are never bypassed silently.** Every mutator is gated. Bulk paths enumerated and tested. Commands that read caller-supplied filesystem paths (`run --stdin`) validate that the path resolves (realpath, symlinks chased) under the caller's CWD; escape attempts via absolute path, `..`, or symlinks fail with `bad-args` (rc=6). Explicit opt-out flags (`--stdin-allow-outside-cwd`) are agent-side and never interactive (§1, §12). #325. **Input-trust:** any command that accepts a caller-supplied string that will be re-parsed into an argv (`repl`) tokenizes with `shlex.split` and dispatches to Click in-process — never via `/bin/sh`, never via `shell=True`. Tokens carrying control characters or naming an unknown top-level verb are rejected before dispatch (#320).
 5. **Identity is explicit.** No command succeeds against an implicitly-resolved target. Ambiguous prefix = rc=6.
 6. **Readiness is honoured.** Create-then-return commands don't return before the session is `ready` (or the caller passed `--no-wait`).
 
@@ -436,6 +436,7 @@ PRs that add any of the following will be closed with a pointer here:
 | #229 | §14 |
 | #325 | §14 |
 | #292 | §14 |
+| #320 | §14 |
 | #296 | §3, §11 |
 | #316, #318, #322 | §3, §4 |
 | #327, #331 | §3, §9 |

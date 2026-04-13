@@ -200,15 +200,47 @@ def menu_state(item, output_json):
 		click.echo(f"enabled: {state.enabled}")
 
 
+# Control chars that must never appear in a parsed REPL token. NUL is the
+# hard §14.2 line; the other C0 controls (except \t) are rejected because they
+# have no legitimate place in a subcommand argv and are a common injection
+# vector (CR/LF to forge extra prompts, escape sequences to confuse terminals).
+_REPL_FORBIDDEN_CHARS = frozenset(chr(c) for c in range(0x20) if c != 0x09)
+
+
+def _validate_repl_tokens(tokens):
+	"""Screen a shlex-parsed argv before dispatching to the Click runner.
+
+	Returns (ok, error_message). Rejects control chars in tokens (§14.2 NUL /
+	§3 no-corruption) and unknown top-level verbs (input-trust, §14.4). See
+	issue #320 — shell injection is structurally impossible (CliRunner never
+	invokes a shell) but this closes the residual input-trust gap."""
+	if not tokens:
+		return False, "empty command"
+	for tok in tokens:
+		bad = _REPL_FORBIDDEN_CHARS.intersection(tok)
+		if bad:
+			names = ', '.join(sorted(f"\\x{ord(c):02x}" for c in bad))
+			return False, f"control character(s) in token: {names}"
+	verb = tokens[0]
+	if verb not in cli.commands:
+		return False, f"unknown command: {verb!r} (try 'commands')"
+	return True, None
+
+
 @cli.command()
 def repl():
-	"""Interactive REPL mode. Type 'exit' to quit."""
+	"""Interactive REPL mode. Type 'exit' to quit.
+
+	Dispatch goes through `CliRunner.invoke` (no shell); tokens are validated
+	via `_validate_repl_tokens` before dispatch (issue #320, CONTRACT §14.4)."""
 	from click.testing import CliRunner
 	import shlex
 
 	click.echo("ita REPL — type commands, 'exit' to quit")
 
-	runner = CliRunner(mix_stderr=False)
+	# Click ≥8.2 split stderr/stdout by default and removed `mix_stderr`;
+	# we rely on that split below via `result.stderr`.
+	runner = CliRunner()
 	while True:
 		try:
 			line = click.prompt('ita', prompt_suffix=' > ')
@@ -216,7 +248,17 @@ def repl():
 				break
 			if not line.strip():
 				continue
-			result = runner.invoke(cli, shlex.split(line))
+			try:
+				tokens = shlex.split(line)
+			except ValueError as e:
+				# Unclosed quote, bad escape, etc. — never reach Click.
+				click.echo(f"Error: parse error: {e}", err=True)
+				continue
+			ok, err = _validate_repl_tokens(tokens)
+			if not ok:
+				click.echo(f"Error: {err}", err=True)
+				continue
+			result = runner.invoke(cli, tokens)
 			if result.output:
 				click.echo(result.output, nl=False)
 			if result.exit_code != 0:
