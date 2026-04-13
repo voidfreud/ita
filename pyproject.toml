@@ -5,7 +5,7 @@ requires-python = ">=3.11"
 dependencies = ["click", "iterm2"]
 
 [project.scripts]
-ita = "ita:cli"
+ita = "ita:main"
 
 [project.optional-dependencies]
 dev = [

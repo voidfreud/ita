@@ -43,8 +43,10 @@ def test_subcommand_help(subcmd):
 # ── run arg validation ────────────────────────────────────────────────────────
 
 @pytest.mark.parametrize('args,expected_rc', [
-	(['run'],                               2),  # missing CMD positional
-	(['run', ''],                           1),  # empty string command
+	(['run'],                               2),  # missing CMD positional (Click UsageError)
+	# Empty-string CMD is a ClickException under the legacy path; the
+	# envelope decorator (CONTRACT §6) now maps it to bad-args / rc=6.
+	(['run', ''],                           6),
 	(['run', 'echo', '--timeout', '0'],     2),  # timeout < min 1
 	(['run', 'echo', '--lines', '0'],       2),  # lines < min 1
 ])

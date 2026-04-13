@@ -85,6 +85,11 @@ Every `--json` mutator (any command that changes iTerm2 state) emits a single JS
 
 **Read-only** commands (`status`, `overview`, `get-prompt`, `read`) MAY omit the envelope and return their payload directly — but they MUST still be valid JSON in `--json` mode.
 
+**Inner-process exit codes (Phase 3 envelope-exit-taxonomy clarification).** Commands that wrap a foreign process (`run`, `run --stdin`) report **two** exit codes that must not be conflated:
+- `data.exit_code` — the inner command's own rc (may be `null` when shell integration is missing, per #144).
+- The envelope's top-level `error` + ita's process exit code — ita's own success/failure per §6.
+ita exits `0` whenever the wrapping ran cleanly, even if `data.exit_code != 0`. Operational failures of ita itself (timeout, locked, not-found, …) raise `ItaError` and produce `ok=false` + the §6-mapped exit code in **both** plain and `--json` modes (§14.3). Plain-mode `run` legacy behaviour (propagating the inner rc, exiting `124` on timeout) is preserved during the pilot migration and will be aligned to §6 in a follow-up PR.
+
 **Schema evolution:** additive field changes bump no version. Removing a field or changing a type bumps the major schema (`ita/2`). Breaking changes require a migration note in this file.
 
 Issues codified: #266, #323, #260.
