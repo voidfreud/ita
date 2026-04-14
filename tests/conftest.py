@@ -18,6 +18,21 @@ import pytest
 # in a specific test with monkeypatch.delenv('ITA_DEFAULT_BACKGROUND', False).
 os.environ.setdefault('ITA_DEFAULT_BACKGROUND', '1')
 
+# #384: suppress the "Last login: <date> on ttys###" banner macOS prints
+# when a new login shell starts. The banner scrolls every test-created
+# session by two lines, which pushes prompts out of sight during capture
+# assertions. Touching ~/.hushlogin is the Unix-standard way to silence
+# it; zero-byte file, idempotent, creates only if missing.
+try:
+	from pathlib import Path as _Path
+	_hush = _Path.home() / '.hushlogin'
+	if not _hush.exists():
+		_hush.touch()
+except Exception:
+	# Best-effort: a read-only home or weird permissions shouldn't break
+	# the test run. Banner is cosmetic, not correctness.
+	pass
+
 from helpers import (  # noqa: F401
 	ITA, ita, ita_ok, _extract_sid, _all_session_ids,
 	_open_test_sessions, _close_test_sessions,
