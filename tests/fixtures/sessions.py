@@ -69,10 +69,10 @@ def broadcast_domain(session_factory):
 	Yields a list of session IDs that are part of the broadcast domain.
 	"""
 	sids = session_factory(2)
-	ita_ok('broadcast', 'on', *sids)
+	ita_ok('broadcast', 'on', *[arg for sid in sids for arg in ('-s', sid)])
 	yield sids
 	# Teardown: turn off broadcast (best-effort)
-	ita('broadcast', 'off', *sids, timeout=10)
+	ita('broadcast', 'off', timeout=10)
 
 
 def _shell_params():
