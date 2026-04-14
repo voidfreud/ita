@@ -59,6 +59,12 @@ atexit.register(_atexit_close_test_sessions)
 
 LEAK_CEILING = 50
 
+# #383: mid-suite leak audit. Snapshots ita-test-* session count at the
+# start of each test, compares in teardown, logs delta to stderr when it
+# looks suspicious. Non-fatal (the L4 hard-ceiling handles that) — purpose
+# is locating *which* test leaks when cumulative counts drift upward.
+_LEAK_SNAPSHOT: dict[str, int] = {}
+
 
 def _count_test_sessions() -> int:
 	try:
@@ -72,6 +78,15 @@ def _count_orphan_windows() -> int:
 		return len(_orphan_default_windows())
 	except Exception:
 		return 0
+
+
+def pytest_runtest_setup(item):
+	"""#383: snapshot session/window count before the test runs, so the
+	teardown hook can compute a delta. Skipped on the contract fast-lane
+	(same rationale as the teardown hook — those tests don't touch iTerm2)."""
+	if 'contract' in item.keywords and 'integration' not in item.keywords:
+		return
+	_LEAK_SNAPSHOT[item.nodeid] = _count_test_sessions()
 
 
 def pytest_runtest_teardown(item, nextitem):
@@ -88,6 +103,17 @@ def pytest_runtest_teardown(item, nextitem):
 		return
 	sess_count = _count_test_sessions()
 	win_count = _count_orphan_windows()
+	# #383: mid-suite leak audit. Log (non-fatally) when a test leaves more
+	# ita-test-* sessions than it started with — the teardown finalizers
+	# ran, so any delta means a fixture teardown missed something.
+	before = _LEAK_SNAPSHOT.pop(item.nodeid, None)
+	if before is not None and sess_count > before:
+		import sys
+		print(
+			f"\n[leak-audit #383] {item.nodeid}: "
+			f"ita-test-* sessions {before} -> {sess_count} (+{sess_count - before})",
+			file=sys.stderr,
+		)
 	if sess_count > LEAK_CEILING or win_count > LEAK_CEILING:
 		try:
 			_close_test_sessions(_open_test_sessions())
