@@ -186,7 +186,7 @@ Source of truth: `src/_*.py`. Regenerate this table from a script when commands 
 
 Legend per class cell: `✓` covered with real assertions, `s` smoke-only (rc=0), `—` not applicable, `g` = no-coverage (tracked as gap in §8.2). `C` = covered by `tests/test_contract_matrix.py` parametrized matrix (all commands in `tests/_contract_categories.py`).
 
-97 commands total; 30 support `--json`.
+110 leaf commands total (every node walked from `ita commands --json` whose own `commands` list is empty); 30 support `--json`. The number matches `len(CATEGORIES)` in `tests/_contract_categories.py` and is enforced by `tests/test_contract_matrix.py::test_categorization_covers_surface`.
 
 ### Orientation (`_orientation.py`)
 
