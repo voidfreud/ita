@@ -87,6 +87,7 @@ def test_key_envelope_not_found():
 # ── happy-path envelope shape (needs live iTerm2 session) ────────────────────
 
 @pytest.mark.contract
+@pytest.mark.integration  # #394: `session` fixture spawns a real iTerm2 session.
 def test_inject_envelope_happy_path(session):
 	"""§4: --json inject on a real session → ok=true, op=inject, target.session set,
 	state_before/after = 'ready', data.bytes_written reflects the payload."""
@@ -104,6 +105,7 @@ def test_inject_envelope_happy_path(session):
 
 
 @pytest.mark.contract
+@pytest.mark.integration  # #394: `session` fixture spawns a real iTerm2 session.
 def test_key_envelope_happy_path(session):
 	"""§4: --json key on a real session → ok=true, op=key, data.keys echoed back."""
 	r = ita('key', 'space', '-s', session, '--json')

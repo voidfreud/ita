@@ -120,6 +120,7 @@ def test_issue_290_wait_missing_session_mode_independent():
 # ── protect roundtrip (requires live iTerm2 via session fixture) ──────────────
 
 @pytest.mark.contract
+@pytest.mark.integration  # #394: `session` fixture spawns a real iTerm2 session.
 def test_protect_json_roundtrip(session):
 	"""§4: `ita protect -s <id> --json` emits a valid envelope with ok=true."""
 	r = ita('protect', '-s', session, '--json')
