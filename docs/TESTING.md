@@ -17,6 +17,18 @@ Scope of this document: scaffolding only. It sets the frame; individual test fil
 
 Non-goals: 100% line coverage as the metric; rewriting every existing test; GUI-level testing of iTerm2 itself; stabilizing async races (tag `xfail_flaky` and file a bug instead).
 
+**Integration lane takes over iTerm2 during execution.** Real windows/tabs spawn, focus moves, "Quit iTerm?" dialogs can surface, tests may follow you across virtual desktops. Run on an idle machine / dedicated VM / ssh session. Do not run while using the computer. Mitigations in progress: #379 (fixtures --background), #380 (named test tabs), #381 (quit dialog), #382 (cross-desktop), #383 (leak cleanup).
+
+## 1.1 Testing discipline
+
+**Tests are part of every PR.** Any PR that:
+- adds a feature → adds happy-path + edge-case test
+- fixes a bug → adds regression test named `test_issue_<N>_<slug>` (per #240)
+- changes observable behaviour → updates affected fast-lane tests
+- changes integration behaviour → updates `tests/integration-baseline.json` in same PR or tight follow-up
+
+A PR with new code but no test delta is rent-dodging. Reviewer must ask: why is there no test change?
+
 ---
 
 ## 2. Test-class matrix
