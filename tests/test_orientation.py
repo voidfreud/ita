@@ -27,7 +27,7 @@ STATUS_ITEM_SCHEMA = {
 
 FOCUS_SCHEMA = {
 	'type': 'object',
-	'required': ['window_id', 'tab_id', 'session_id'],
+	'required': ['window_id', 'tab_id', 'session_id', 'session_name'],
 	'properties': {
 		'window_id': {},
 		'tab_id': {},

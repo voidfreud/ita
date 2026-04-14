@@ -118,6 +118,8 @@ Every `--json` mutator (any command that changes iTerm2 state) emits a single JS
 
 **Read-only** commands (`status`, `overview`, `get-prompt`, `read`) MAY omit the envelope and return their payload directly — but they MUST still be valid JSON in `--json` mode.
 
+**Key stability across variants (#222).** Every documented key in a `--json` payload MUST be present on every code path, including failure / empty / null branches. Absent values are emitted as `null`; keys are never silently dropped. Consumers iterate keys, so omission is a breaking schema change.
+
 **`overview --json` is the canonical world model (#276).** It is the single read an agent should issue to answer "what exists right now":
 
 ```json
