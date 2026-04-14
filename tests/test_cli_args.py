@@ -75,8 +75,11 @@ def test_key_no_args():
 
 
 def test_key_unknown_name():
+	# Post-#13: `key` is an @ita_command, so unknown tokens raise
+	# ItaError("bad-args") → rc=6 (CONTRACT §6). Previously the bare
+	# click.ClickException mapped to rc=1; the sharpening is the point.
 	r = ita('key', 'notarealkey')
-	assert r.returncode == 1
+	assert r.returncode == 6
 	assert 'unknown' in r.stderr.lower()
 
 
