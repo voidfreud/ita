@@ -581,9 +581,8 @@ def broadcast_send(text, newline, use_json, on_dead, force_protected, force_lock
 			except ItaError as exc:
 				results.append({'session_id': s.session_id, 'ok': False,
 							   'error': exc.reason, 'code': exc.code})
-				import sys as _sys
-				print(f"Warning: skipping protected session {s.session_id}: {exc.reason}",
-					  file=_sys.stderr)
+				click.echo(f"Warning: skipping protected session {s.session_id}: {exc.reason}",
+						   err=True)
 				continue
 			try:
 				with session_writelock(s.session_id, force_lock=fl):
@@ -594,9 +593,8 @@ def broadcast_send(text, newline, use_json, on_dead, force_protected, force_lock
 				# locked or similar structured refusal — record, move on.
 				results.append({'session_id': s.session_id, 'ok': False,
 							   'error': exc.reason, 'code': exc.code})
-				import sys as _sys
-				print(f"Warning: skipping locked session {s.session_id}: {exc.reason}",
-					  file=_sys.stderr)
+				click.echo(f"Warning: skipping locked session {s.session_id}: {exc.reason}",
+						   err=True)
 				continue
 			except Exception as exc:
 				err = str(exc)
@@ -605,12 +603,10 @@ def broadcast_send(text, newline, use_json, on_dead, force_protected, force_lock
 						f"Session {s.session_id!r} unreachable: {err}")
 				elif on_dead == 'prune':
 					dead_ids.add(s.session_id)
-					import click as _click
-					_click.echo(f"Warning: pruning dead session {s.session_id}", err=True)
+					click.echo(f"Warning: pruning dead session {s.session_id}", err=True)
 				else:  # skip
-					import sys as _sys
-					print(f"Warning: skipping dead session {s.session_id}: {err}",
-						  file=_sys.stderr)
+					click.echo(f"Warning: skipping dead session {s.session_id}: {err}",
+							   err=True)
 				results.append({'session_id': s.session_id, 'ok': False, 'error': err})
 
 		if dead_ids:
