@@ -3,12 +3,11 @@
 
 Both target the terminal emulator but at different layers: `inject` writes into
 the emulator's output stream (what gets rendered on screen), while `key` delivers
-bytes as user input (what the foreground process reads from its TTY). Task #13
-will later convert `inject` to the `@ita_command` envelope; keeping it in its own
-module makes that a single-file edit."""
+bytes as user input (what the foreground process reads from its TTY). Both now
+emit the CONTRACT §4 envelope via `@ita_command` (task #13)."""
 import click
 from ._core import cli, run_iterm, resolve_session, check_protected, session_writelock
-from ._envelope import ItaError
+from ._envelope import ItaError, ita_command
 from ._lock import resolve_force_flags
 from ._force import _force_options
 
@@ -46,8 +45,11 @@ def _encode_inject_payload(data: str, is_hex: bool) -> bytes:
 @click.argument('data')
 @click.option('--hex', 'is_hex', is_flag=True, help='Interpret DATA as hex bytes')
 @click.option('-s', '--session', 'session_id', default=None)
+@click.option('--json', 'use_json', is_flag=True,
+	help='Emit CONTRACT §4 envelope on stdout.')
 @_force_options
-def inject(data, is_hex, session_id, force_protected, force_lock, force):
+@ita_command(op='inject')
+def inject(data, is_hex, session_id, use_json, force_protected, force_lock, force):
 	"""Inject raw bytes into the terminal emulator's output stream (display side).
 	For sending input to a running process (Ctrl+C, arrow keys, etc.) use 'ita key' instead.
 
@@ -58,13 +60,25 @@ def inject(data, is_hex, session_id, force_protected, force_lock, force):
 	# partial-write or lock-acquire side effects on bad-args).
 	raw = _encode_inject_payload(data, is_hex)
 	fp, fl = resolve_force_flags(force, force_protected, force_lock)
+	resolved_sid = None
 	async def _run(connection):
+		nonlocal resolved_sid
 		session = await resolve_session(connection, session_id)
+		resolved_sid = session.session_id
 		check_protected(session.session_id, force_protected=fp)
 		with session_writelock(session.session_id, force_lock=fl):
 			if raw:
 				await session.async_inject(raw)
 	run_iterm(_run)
+	return {
+		"target": {"session": resolved_sid or session_id},
+		"state_before": "ready",
+		"state_after": "ready",
+		"data": {
+			"bytes_written": len(raw),
+			"hex": bool(is_hex),
+		},
+	}
 
 
 # Friendly key names → literal byte sequences delivered as user input.
@@ -98,10 +112,12 @@ _KEY_MAP = {
 
 
 def _parse_key(token: str) -> bytes:
-	"""Resolve 'ctrl+c', 'alt+f', 'f5', 'enter', etc. to the bytes iTerm2 should deliver as input."""
+	"""Resolve 'ctrl+c', 'alt+f', 'f5', 'enter', etc. to the bytes iTerm2 should deliver as input.
+
+	Raises ItaError("bad-args", ...) on unrecognized tokens (rc=6)."""
 	t = token.strip().lower()
 	if not t:
-		raise click.ClickException("empty key token")
+		raise ItaError("bad-args", "empty key token")
 	# ctrl+<letter|number> → 0x01..0x1a (letters), 0x00 for @, 0x1b for [, etc.
 	if t.startswith('ctrl+') or t.startswith('c-'):
 		rest = t.split('+', 1)[1] if '+' in t else t[2:]
@@ -121,7 +137,7 @@ def _parse_key(token: str) -> bytes:
 				return b'\x1e'
 			if ch == '_':
 				return b'\x1f'
-		raise click.ClickException(f"unsupported ctrl combination: {token!r}")
+		raise ItaError("bad-args", f"unsupported ctrl combination: {token!r}")
 	# alt+<key> → ESC followed by the key's bytes
 	if t.startswith('alt+') or t.startswith('a-') or t.startswith('meta+') or t.startswith('m-'):
 		rest = t.split('+', 1)[1] if '+' in t else t[2:]
@@ -129,14 +145,14 @@ def _parse_key(token: str) -> bytes:
 			return b'\x1b' + rest.encode('utf-8')
 		if rest in _KEY_MAP:
 			return b'\x1b' + _KEY_MAP[rest].encode('latin-1')
-		raise click.ClickException(f"unsupported alt combination: {token!r}")
+		raise ItaError("bad-args", f"unsupported alt combination: {token!r}")
 	# Named key
 	if t in _KEY_MAP:
 		return _KEY_MAP[t].encode('latin-1')
 	# Single literal character
 	if len(t) == 1:
 		return token.encode('utf-8')
-	raise click.ClickException(
+	raise ItaError("bad-args",
 		f"unknown key: {token!r}. Try ctrl+c, alt+f, enter, esc, tab, up, f5, etc."
 	)
 
@@ -144,21 +160,33 @@ def _parse_key(token: str) -> bytes:
 @cli.command()
 @click.argument('keys', nargs=-1, required=True)
 @click.option('-s', '--session', 'session_id', default=None)
+@click.option('--json', 'use_json', is_flag=True,
+	help='Emit CONTRACT §4 envelope on stdout.')
 @_force_options
-def key(keys, session_id, force_protected, force_lock, force):
+@ita_command(op='key')
+def key(keys, session_id, use_json, force_protected, force_lock, force):
 	"""Send keystrokes as user input. Use friendly names: ctrl+c, ctrl+d, esc, enter,
 	tab, space, backspace, up, down, left, right, home, end, pgup, pgdn, f1-f19.
 	Multiple keys are sent in order: 'ita key ctrl+c ctrl+c' sends Ctrl+C twice."""
-	try:
-		payload = b''.join(_parse_key(k) for k in keys)
-	except click.ClickException:
-		raise
+	payload = b''.join(_parse_key(k) for k in keys)
 	fp, fl = resolve_force_flags(force, force_protected, force_lock)
+	resolved_sid = None
 	async def _run(connection):
+		nonlocal resolved_sid
 		session = await resolve_session(connection, session_id)
+		resolved_sid = session.session_id
 		check_protected(session.session_id, force_protected=fp)
 		with session_writelock(session.session_id, force_lock=fl):
 			# Decode bytes back to a str for async_send_text (it takes text, not raw bytes —
 			# iTerm2 internally encodes via the session's terminal encoding).
 			await session.async_send_text(payload.decode('latin-1'))
 	run_iterm(_run)
+	return {
+		"target": {"session": resolved_sid or session_id},
+		"state_before": "ready",
+		"state_after": "ready",
+		"data": {
+			"keys": list(keys),
+			"bytes_written": len(payload),
+		},
+	}
