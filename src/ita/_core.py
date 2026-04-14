@@ -15,6 +15,7 @@ touches its module, it can import directly from the correct source.
 """
 import asyncio
 import json
+import subprocess
 import sys
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
@@ -294,17 +295,58 @@ async def resolve_session(connection, session_id: str | None = None) -> 'iterm2.
 
 @dataclass
 class FocusSnapshot:
-	"""Captured focus triple — any field may be None if nothing was focused."""
+	"""Captured focus triple — any field may be None if nothing was focused.
+
+	Extended for #401: also records the macOS frontmost application so that
+	iTerm2's forced foreground-raise on new tab/window/session creation can
+	be undone at the OS level, not just the iTerm2-internal level. The iTerm2
+	`async_activate` calls only restore focus *within* iTerm2; when the user
+	was in a different app (editor, browser), macOS has already raised iTerm2
+	to the foreground and the user's app needs an explicit re-activate."""
 	window_id: str | None = None
 	tab_id: str | None = None
 	session_id: str | None = None
+	macos_app_name: str | None = None
+
+
+def _capture_macos_frontmost() -> str | None:
+	"""Read the macOS frontmost process name via osascript. Returns None on
+	any failure — the caller treats that as 'nothing to restore at the OS
+	layer' and falls back to the iTerm2-internal restore only."""
+	try:
+		result = subprocess.run(
+			['osascript', '-e',
+			 'tell application "System Events" to get name of first process whose frontmost is true'],
+			capture_output=True, text=True, timeout=2.0,
+		)
+	except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
+		return None
+	if result.returncode != 0:
+		return None
+	name = result.stdout.strip()
+	return name or None
+
+
+def _restore_macos_frontmost(app_name: str) -> None:
+	"""Re-activate the given macOS app. Silent no-op on any failure — matches
+	§1 non-goal: never surface focus-restore failures to the agent (#346)."""
+	try:
+		subprocess.run(
+			['osascript', '-e', f'tell application "{app_name}" to activate'],
+			capture_output=True, timeout=2.0,
+		)
+	except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
+		pass
 
 
 async def capture_focus(app) -> FocusSnapshot:
 	"""Snapshot the currently-focused window/tab/session for later restore.
 
 	Best-effort — any missing layer is recorded as None. Never raises; the
-	caller uses the result only to pass to `restore_focus`."""
+	caller uses the result only to pass to `restore_focus`. Also captures
+	the macOS frontmost app (#401) so OS-level focus can be restored if
+	iTerm2's new-object creation pulled foreground away from the user's app."""
+	macos_app = _capture_macos_frontmost()
 	try:
 		window = app.current_terminal_window
 		tab = window.current_tab if window else None
@@ -313,9 +355,10 @@ async def capture_focus(app) -> FocusSnapshot:
 			window_id=window.window_id if window else None,
 			tab_id=tab.tab_id if tab else None,
 			session_id=session.session_id if session else None,
+			macos_app_name=macos_app,
 		)
 	except Exception:
-		return FocusSnapshot()
+		return FocusSnapshot(macos_app_name=macos_app)
 
 
 async def restore_focus(app, snap: FocusSnapshot) -> None:
@@ -323,7 +366,13 @@ async def restore_focus(app, snap: FocusSnapshot) -> None:
 
 	Fallback behaviour (#346): if the original target no longer exists,
 	proceed silently — the user may have closed it in the interim, which
-	is not an error state."""
+	is not an error state.
+
+	After the iTerm2-internal restore, also re-activates the macOS
+	frontmost app captured at snapshot time (#401). The OS-level step runs
+	last so it has the final say on which app owns foreground. Skipped when
+	the user was already in iTerm2 — bouncing focus back to iTerm2 is a
+	no-op that would just waste a subprocess call."""
 	if snap is None:
 		return
 	try:
@@ -334,19 +383,36 @@ async def restore_focus(app, snap: FocusSnapshot) -> None:
 						if s.session_id == snap.session_id:
 							await s.async_activate(
 								select_tab=True, order_window_front=True)
+							_maybe_restore_macos(snap)
 							return
 		if snap.tab_id:
 			t = app.get_tab_by_id(snap.tab_id)
 			if t:
 				await t.async_activate(order_window_front=True)
+				_maybe_restore_macos(snap)
 				return
 		if snap.window_id:
 			w = app.get_window_by_id(snap.window_id)
 			if w:
 				await w.async_activate()
+				_maybe_restore_macos(snap)
+				return
 	except Exception:
 		# §1 non-goal: never surface focus-restore failures to the agent.
 		pass
+	# Nothing in iTerm2 to restore, but the user may still have been in
+	# another macOS app when capture ran — honour that.
+	_maybe_restore_macos(snap)
+
+
+def _maybe_restore_macos(snap: FocusSnapshot) -> None:
+	"""Activate the captured macOS app unless it was iTerm2 itself (or None).
+
+	Keeping this as a tiny helper means every return-path in restore_focus
+	gets the OS-level step without repeating the guard inline."""
+	name = snap.macos_app_name
+	if name and name != 'iTerm2':
+		_restore_macos_frontmost(name)
 
 
 # ── CLI root ────────────────────────────────────────────────────────────────

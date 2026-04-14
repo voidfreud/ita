@@ -323,15 +323,19 @@ default. Rules:
 
 Issues codified above + #340.
 
-**Creation focus discipline (#346).** Creation commands (`ita new`, `ita tab
-new`, `ita window new`) MAY accept `--background` to suppress the focus
-shift iTerm2 performs on new objects. With the flag, ita captures the
-focused (window, tab, session) triple before creating, then re-activates
-it afterwards. If the originally-focused target no longer exists when
-restore runs, ita proceeds silently (§1 non-goal: no interactive UI
-decisions). Default behaviour is unchanged — focus lands on the new
-object. ita's own internal multi-step operations should prefer
-`--background` where supported to avoid mid-operation focus churn.
+**Creation focus discipline (#346, #401).** Creation commands (`ita new`,
+`ita tab new`, `ita window new`) MAY accept `--background` to suppress the
+focus shift iTerm2 performs on new objects. With the flag, ita captures the
+focused (window, tab, session) triple before creating, then re-activates it
+afterwards. The snapshot also records the macOS frontmost application
+(#401): creating an iTerm2 object raises iTerm2.app to the OS foreground
+regardless of iTerm2-internal state, so ita re-activates the captured
+macOS app after the iTerm2-internal restore. If the originally-focused
+target no longer exists when restore runs — at either layer — ita proceeds
+silently (§1 non-goal: no interactive UI decisions). Default behaviour is
+unchanged — focus lands on the new object. ita's own internal multi-step
+operations should prefer `--background` where supported to avoid
+mid-operation focus churn.
 
 ---
 
