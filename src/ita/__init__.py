@@ -75,7 +75,10 @@ from . import _meta         # noqa: F401 — commands, doctor
 from . import _config       # noqa: F401 — var, app, pref, broadcast
 from . import _interactive  # noqa: F401 — alert, ask, pick, save-dialog, menu, repl
 from . import _tmux         # noqa: F401 — tmux -CC group
-from . import _events       # noqa: F401 — on group, coprocess, annotate, rpc
+from . import _events       # noqa: F401 — on group, on output/keystroke/focus/layout, annotate, rpc
+from . import _on_prompt    # noqa: F401 — on prompt (#247 timeout fix)
+from . import _on_session   # noqa: F401 — on session-new, on session-end
+from . import _coprocess    # noqa: F401 — coprocess group
 from . import _readiness    # noqa: F401 — stabilize
 
 __all__ = ["cli"]
