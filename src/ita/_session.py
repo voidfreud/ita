@@ -1,5 +1,6 @@
 # src/_session.py
 """Session lifecycle commands: new, close, activate, name, restart, resize, clear, capture."""
+import os
 from pathlib import Path
 import shlex
 import click
@@ -73,6 +74,10 @@ _NEW_WAIT_DEFAULT = 'shell_alive,writable'
 @click.option('--background', is_flag=True,
 	help='Create without shifting focus; restore previously-focused target after creation (#346).')
 def new(new_window, profile, session_name, reuse, replace, cwd, run_cmd, as_json, wait_reqs, no_wait, background):
+	# #379: honor ITA_DEFAULT_BACKGROUND=1 as a fallback default so tests
+	# (and agents) don't need to pass --background on every creation.
+	if not background and os.environ.get('ITA_DEFAULT_BACKGROUND') == '1':
+		background = True
 	"""Create new tab (or window). Returns name (stdout) and session ID.
 
 	By default waits until the session is alive and writable before returning

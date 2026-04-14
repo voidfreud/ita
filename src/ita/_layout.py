@@ -2,6 +2,7 @@
 """Layout commands: window group."""
 import asyncio
 import json
+import os
 import click
 import iterm2
 from ._core import cli, run_iterm, confirm_or_skip, next_free_name, capture_focus, restore_focus
@@ -26,7 +27,10 @@ def window_new(window_name, profile, background):
 	"""Create new window. Returns window ID.
 
 	CONTRACT §2 "Mandatory naming on creation (#342)" — when `--name` is
-	absent, the window is titled with the lowest free `w<N>` counter."""
+	absent, the window is titled with the lowest free `w<N>` counter.
+	#379: ITA_DEFAULT_BACKGROUND=1 env var is honored as a fallback default."""
+	if not background and os.environ.get('ITA_DEFAULT_BACKGROUND') == '1':
+		background = True
 	async def _run(connection):
 		app = await iterm2.async_get_app(connection)
 		captured = await capture_focus(app) if background else None

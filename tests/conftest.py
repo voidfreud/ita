@@ -10,7 +10,13 @@ Cleanup discipline (TESTING.md §4.1, #341):
 Layers L3 + L4 added here as the catastrophic-leak circuit breaker.
 """
 import atexit
+import os
 import pytest
+
+# #379: fixtures create sessions/tabs/windows in the background by default
+# so test runs don't steal focus from the human at the keyboard. Opt-out
+# in a specific test with monkeypatch.delenv('ITA_DEFAULT_BACKGROUND', False).
+os.environ.setdefault('ITA_DEFAULT_BACKGROUND', '1')
 
 from helpers import (  # noqa: F401
 	ITA, ita, ita_ok, _extract_sid, _all_session_ids,
