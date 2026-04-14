@@ -15,6 +15,7 @@ dev = [
 	"pytest-xdist",
 	"pytest-timeout",
 	"pytest-benchmark",
+	"pytest-json-report",
 	"jsonschema",
 	"ruff",
 	"mutmut",
