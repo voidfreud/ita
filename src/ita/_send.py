@@ -52,21 +52,6 @@ def _trim_output_lines(lines: list[str]) -> list[str]:
 	return out
 
 
-def _fallback_output(contents, lines_cap: int, tag: str | None = None) -> str:
-	"""Echo marker not found or not useful — return the last N non-empty rows of
-	the visible screen, trimmed of prompt/blank noise. Used when the command's echo
-	row has scrolled off-screen (BUG-1) or was never recorded. If `tag` is given,
-	drop rows that still contain the wrapper tag (prevents echo/wrap leakage)."""
-	last_idx = last_non_empty_index(contents)
-	if last_idx < 0:
-		return ''
-	rows = [strip(contents.line(i).string).rstrip() for i in range(0, last_idx + 1)]
-	if tag:
-		rows = [r for r in rows if tag not in r]
-	rows = _trim_output_lines(rows)
-	return '\n'.join(rows[-lines_cap:])
-
-
 async def _prompt_is_back(session) -> bool:
 	"""True if the last non-empty screen row looks like a shell prompt —
 	used after sending an interrupt to decide whether the foreground
@@ -121,12 +106,21 @@ async def _has_shell_integration(session) -> bool:
 	"""Best-effort detection. iTerm2 shell integration sets the user variable
 	`user.iterm2_shell_integration_version` on session start. Absence of that
 	variable is a strong signal integration isn't loaded in the target session.
-	Returns True on error (caller should treat detection as advisory)."""
+
+	Fail-closed (#234): on any probe exception we return False. Claiming
+	integration exists when the probe itself failed would silently swallow
+	exit codes (agents would see `exit_code=null` with `shell_integration=
+	true`, an impossible combination). False is the safe advisory value —
+	the caller then uses the no-integration code path and surfaces
+	`shell_integration=false` honestly. A one-line debug warning is emitted
+	to stderr so the failure isn't fully invisible."""
 	try:
 		v = await session.async_get_variable('user.iterm2_shell_integration_version')
 		return bool(v)
-	except Exception:
-		return True  # fail-open: don't block run on a probe failure
+	except Exception as e:
+		click.echo(f"ita: shell-integration probe failed ({type(e).__name__}): "
+			f"treating as missing", err=True)
+		return False
 
 
 def _load_stdin_script(stdin_path: str, allow_outside_cwd: bool) -> str:
@@ -305,16 +299,36 @@ def run(cmd, timeout, lines, tail_n, use_json, persist, check_integration, stdin
 				connection, session.session_id,
 				modes=[iterm2.PromptMonitor.Mode.COMMAND_END]) as mon:
 			await session.async_send_text(wrapped + '\n')
+			# #326: without shell integration, COMMAND_END never fires — waiting
+			# the full user timeout would stall the caller needlessly, so we clamp
+			# the poll to 2s and return without an exit code. The command keeps
+			# running in the session; we just can't observe completion. Critically,
+			# we DO NOT run the interrupt ladder in that case — killing a healthy
+			# long-running process (make build, pip install, REPL) is the bug.
+			effective_timeout = timeout if integration_ok else min(timeout, 2)
 			try:
-				mode, payload = await asyncio.wait_for(mon.async_get(), timeout=(min(timeout, 2) if not integration_ok else timeout))
+				mode, payload = await asyncio.wait_for(mon.async_get(), timeout=effective_timeout)
 				if mode == iterm2.PromptMonitor.Mode.COMMAND_END and isinstance(payload, int):
 					exit_code = payload
 			except asyncio.TimeoutError:
-				timed_out = True  # no shell integration, or command genuinely timed out
-				# #175: escalation ladder — Ctrl+C is not enough for processes
-				# that ignore SIGINT (editors, some REPLs). After each signal,
-				# check whether the prompt returned; only escalate if still hung.
-				escalated = await _escalate_interrupt(session)
+				if integration_ok:
+					# Real timeout: COMMAND_END was expected and didn't arrive.
+					timed_out = True
+					# #175: escalation ladder — Ctrl+C isn't enough for processes
+					# that ignore SIGINT (editors, some REPLs). After each signal,
+					# check whether the prompt returned; only escalate if still hung.
+					escalated = await _escalate_interrupt(session)
+				# else (#326): no-integration clamp expired. Leave timed_out=False,
+				# exit_code=None. Callers read `shell_integration: false` +
+				# `exit_code: null` as "command dispatched, completion unobservable."
+
+		# #324: --persist runs in the live shell, so command output races with
+		# any in-flight input the user/agent may interleave. The writelock bars
+		# ita-vs-ita races, but not shell-side typing. Add a brief settle before
+		# the screen read so trailing output rows land inside the capture window.
+		# This is a runtime guard — the prior code only documented the risk.
+		if persist:
+			await asyncio.sleep(0.2)
 
 		elapsed_ms = int((time.time() - start) * 1000)
 
@@ -340,12 +354,16 @@ def run(cmd, timeout, lines, tail_n, use_json, persist, check_integration, stdin
 			rows = _trim_output_lines(rows)
 			output_rows = rows[-lines:]
 		else:
-			# BUG-1: echo row not found — output scrolled past it. Recover from the
-			# visible screen. Pass the tag so any wrap-continuation rows still
-			# carrying it get dropped.
-			fallback = _fallback_output(contents, lines, tag=tag)
-			output_rows = fallback.split('\n') if fallback else []
-			click.echo('⚠ output may be incomplete — echo row scrolled off screen', err=True)
+			# #317: echo row not found — we can't reliably scope output to this
+			# command. Previously we warned on stderr but returned rc=0 with a
+			# best-effort fallback, which violates CONTRACT §14.1 (must not
+			# report success when the observable effect is incomplete). Fail
+			# loud with rc=2 / not-found so the caller doesn't mistake a
+			# degraded capture for a successful run.
+			raise ItaError("not-found",
+				"run echo row not found — output could not be reliably scoped "
+				"(the command may have scrolled off-screen, or the session was "
+				"disturbed mid-capture)")
 
 		# #126: explicit --tail N overrides the default lines cap. #248:
 		# the truncation notice does NOT go on stdout (that breaks `run -n N`'s
