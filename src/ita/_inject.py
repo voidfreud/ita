@@ -111,6 +111,22 @@ _KEY_MAP = {
 }
 
 
+# Shift+<key> emits xterm's modifier-2 form. Arrows use the DECCKM modifier
+# template `\e[1;2<letter>`; tilde-terminated keys use `\e[<code>;2~` (#330).
+_SHIFT_MAP = {
+	'up': '\x1b[1;2A',
+	'down': '\x1b[1;2B',
+	'right': '\x1b[1;2C',
+	'left': '\x1b[1;2D',
+	'pgup': '\x1b[5;2~',
+	'pageup': '\x1b[5;2~',
+	'pgdn': '\x1b[6;2~',
+	'pagedown': '\x1b[6;2~',
+	'home': '\x1b[1;2H',
+	'end': '\x1b[1;2F',
+}
+
+
 def _parse_key(token: str) -> bytes:
 	"""Resolve 'ctrl+c', 'alt+f', 'f5', 'enter', etc. to the bytes iTerm2 should deliver as input.
 
@@ -138,6 +154,16 @@ def _parse_key(token: str) -> bytes:
 			if ch == '_':
 				return b'\x1f'
 		raise ItaError("bad-args", f"unsupported ctrl combination: {token!r}")
+	# shift+<key> → xterm modifier-2 escape sequence (#330). Arrows/nav only;
+	# shift+letter is a plain uppercase letter and should go through the
+	# single-character path instead.
+	if t.startswith('shift+') or t.startswith('s-'):
+		rest = t.split('+', 1)[1] if '+' in t else t[2:]
+		if rest in _SHIFT_MAP:
+			return _SHIFT_MAP[rest].encode('latin-1')
+		if len(rest) == 1 and 'a' <= rest <= 'z':
+			return rest.upper().encode('utf-8')
+		raise ItaError("bad-args", f"unsupported shift combination: {token!r}")
 	# alt+<key> → ESC followed by the key's bytes
 	if t.startswith('alt+') or t.startswith('a-') or t.startswith('meta+') or t.startswith('m-'):
 		rest = t.split('+', 1)[1] if '+' in t else t[2:]
@@ -167,6 +193,7 @@ def _parse_key(token: str) -> bytes:
 def key(keys, session_id, use_json, force_protected, force_lock, force):
 	"""Send keystrokes as user input. Use friendly names: ctrl+c, ctrl+d, esc, enter,
 	tab, space, backspace, up, down, left, right, home, end, pgup, pgdn, f1-f19.
+	Modifiers: ctrl+, alt+/meta+, shift+ (arrows and page keys).
 	Multiple keys are sent in order: 'ita key ctrl+c ctrl+c' sends Ctrl+C twice."""
 	payload = b''.join(_parse_key(k) for k in keys)
 	fp, fl = resolve_force_flags(force, force_protected, force_lock)
