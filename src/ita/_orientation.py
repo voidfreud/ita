@@ -6,7 +6,7 @@ import click
 import iterm2
 from ._core import cli, run_iterm, strip, __version__, \
 	add_protected, remove_protected, get_protected, resolve_session, \
-	parse_filter, match_filter, snapshot
+	parse_filter, match_filter, snapshot, check_protected
 from ._envelope import ita_command
 from ._state import derive_state
 
@@ -131,8 +131,10 @@ def version():
 @click.option('--list', 'list_only', is_flag=True, help='List all protected sessions.')
 @click.option('--json', 'use_json', is_flag=True,
 	help='Emit CONTRACT §4 envelope on stdout.')
+@click.option('--force-protected', 'force_protected', is_flag=True,
+	help='Override protected-session guard (§14.4, #294).')
 @ita_command(op='protect')
-def protect(session_id, list_only, use_json):
+def protect(session_id, list_only, use_json, force_protected):
 	"""Mark a session as protected — write commands (run, send, key, inject, close)
 	will refuse to target it without --force.  Use this to guard the Claude Code
 	terminal or any session you don't want accidentally modified.
@@ -157,6 +159,10 @@ def protect(session_id, list_only, use_json):
 		return session.session_id
 	sid = run_iterm(_resolve)
 	was_protected = sid in get_protected()
+	# §14.4: even `protect` itself gates on already-protected targets for
+	# auditability — re-protecting a protected session requires explicit
+	# --force-protected ack so the caller can't silently overwrite state.
+	check_protected(sid, force_protected=force_protected)
 	add_protected(sid)
 	if not use_json:
 		click.echo(f"Protected: {sid}")
@@ -171,12 +177,24 @@ def protect(session_id, list_only, use_json):
 @cli.command()
 @click.option('-s', '--session', 'session_id', default=None,
 	help='Session to unprotect.')
-def unprotect(session_id):
-	"""Remove protection from a session (reverse of `ita protect`)."""
+@click.option('--force-protected', 'force_protected', is_flag=True,
+	help='Override protected-session guard (§14.4, #294). '
+		'Required to actually remove protection from a protected session — '
+		'the caller must acknowledge they know the target is protected.')
+def unprotect(session_id, force_protected):
+	"""Remove protection from a session (reverse of `ita protect`).
+
+	§14.4 (security): even though this command's purpose is to drop the
+	protected flag, it still gates on `check_protected` without
+	`--force-protected`. Rationale: the invariant is "no silent bypass of
+	protection state," and silently disarming a protected session is the
+	exact bypass we're preventing. Callers must pass --force-protected to
+	acknowledge the target is protected before removing it."""
 	async def _resolve(connection):
 		session = await resolve_session(connection, session_id)
 		return session.session_id
 	sid = run_iterm(_resolve)
+	check_protected(sid, force_protected=force_protected)
 	remove_protected(sid)
 	click.echo(f"Unprotected: {sid}")
 

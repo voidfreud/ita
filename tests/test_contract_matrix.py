@@ -297,6 +297,7 @@ _RULE4_POSITIONAL: dict[str, list[str]] = {
 _RULE4_WIRED: frozenset[str] = frozenset({
 	"run", "send", "inject", "key",
 	"close", "restart", "clear",
+	"protect", "unprotect",
 })
 
 # Everything in MUTATORS & TARGET_TAKERS that's NOT in _RULE4_WIRED is
