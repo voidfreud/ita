@@ -55,10 +55,16 @@ Proper Python package at `src/ita/`. Entry point: `python -m ita` or the install
 |--------|---------------|
 | `_core.py` | `run_iterm`, `resolve_session`, `emit`, `confirm_or_skip`, writelock, CLI root |
 | `_protect.py` | Protected-session set (`~/.ita_protected`), `check_protected` |
+| `_claudecode.py` | Auto-protect the session Claude Code is running in |
 | `_screen.py` | `_is_prompt_line`, `strip`, `read_session_lines`, prompt-char set |
 | `_filter.py` | `--where KEY=VALUE` parse / match |
 | `_envelope.py` | CONTRACT §4/§6 — `SCHEMA_VERSION`, exit-code taxonomy, `ItaError` |
 | `_readiness.py` | `stabilize` — canonical wait-until-ready helper |
+| `_state.py` | `derive_state` — session state machine (CONTRACT §3) |
+| `_cascade.py` | Detect when closing a session/tab would cascade-close the window |
+| `_force.py` | Shared `--force-protected` / `--force-lock` / `--force` option decorators |
+| `_stdin.py` | `--stdin` script loading + sandboxing for `ita run` |
+| `_probe.py` | `ita run` internals: shell-integration probe, interrupt escalation, output trim |
 
 **Command modules** (register commands on the shared `cli` group):
 
@@ -67,7 +73,9 @@ Proper Python package at `src/ita/`. Entry point: `python -m ita` or the install
 | `_orientation.py` | `status`, `focus`, `version`, `protect`, `unprotect` |
 | `_overview.py` | `overview` (single-call world model) |
 | `_session.py` | `new`, `close`, `activate`, `name`, `restart`, `resize`, `clear`, `capture` |
-| `_send.py` | `run` (atomic), `send`, `inject`, `key` |
+| `_run.py` | `run` (atomic send + wait + return output) |
+| `_send.py` | `send` |
+| `_inject.py` | `inject`, `key` |
 | `_output.py` | `read` |
 | `_stream.py` | `watch` |
 | `_query.py` | `wait`, `selection`, `copy`, `get-prompt` |
@@ -79,11 +87,14 @@ Proper Python package at `src/ita/`. Entry point: `python -m ita` or the install
 | `_config.py` | `var`, `app`, `pref`, `broadcast` groups |
 | `_interactive.py` | `alert`, `ask`, `pick`, `save-dialog`, `menu` group, `repl` |
 | `_tmux.py` | `tmux -CC` group |
-| `_events.py` | `on` group, `coprocess`, `annotate`, `rpc` |
+| `_events.py` | `on` group root + `on output`/`keystroke`/`focus`/`layout`, `annotate`, `rpc` |
+| `_on_prompt.py` | `on prompt` |
+| `_on_session.py` | `on session-new`, `on session-end` |
+| `_coprocess.py` | `coprocess` group (`start` / `stop` / `list`) |
 | `_lock.py` | `lock`, `unlock` |
 | `_meta.py` | `commands`, `doctor` |
 
-Target: every module ≤ ~250–300 lines, one clear responsibility. All mutators go through `_core` primitives (`check_protected`, `session_writelock`, `emit`, `run_iterm`).
+Target: one clear responsibility per module. Most modules sit under ~300 lines; a handful (`_config.py`, `_session.py`, `_core.py`, `_tab.py`, `_lock.py`, `_run.py`) are larger because their command surface is irreducibly wide — splits happen when a clean seam appears (e.g. PR #375 carved `_run`/`_inject`/`_stdin`/`_probe`/`_force` out of a 600-line `_send.py`). All mutators go through `_core` primitives (`check_protected`, `session_writelock`, `emit`, `run_iterm`).
 
 ## License
 
