@@ -12,7 +12,7 @@ Integration tests for actual focus restoration live in the integration
 suite — the iTerm2 API dance is mocked here.
 """
 import asyncio
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -51,7 +51,10 @@ def test_capture_focus_reads_full_triple():
 	app.current_terminal_window.window_id = 'w1'
 	app.current_terminal_window.current_tab.tab_id = 't1'
 	app.current_terminal_window.current_tab.current_session.session_id = 's1'
-	snap = _run(capture_focus(app))
+	# #401: capture also shells out for macOS frontmost; mock it so the test
+	# stays host-independent and fast-lane clean.
+	with patch('ita._core._capture_macos_frontmost', return_value=None):
+		snap = _run(capture_focus(app))
 	assert snap.window_id == 'w1'
 	assert snap.tab_id == 't1'
 	assert snap.session_id == 's1'
@@ -60,7 +63,8 @@ def test_capture_focus_reads_full_triple():
 def test_capture_focus_no_focused_window():
 	app = MagicMock()
 	app.current_terminal_window = None
-	snap = _run(capture_focus(app))
+	with patch('ita._core._capture_macos_frontmost', return_value=None):
+		snap = _run(capture_focus(app))
 	assert snap == FocusSnapshot()
 
 
@@ -69,7 +73,8 @@ def test_capture_focus_swallows_exceptions():
 	# Raising property access → capture must still return a snapshot.
 	type(app).current_terminal_window = property(
 		lambda self: (_ for _ in ()).throw(RuntimeError('boom')))
-	snap = _run(capture_focus(app))
+	with patch('ita._core._capture_macos_frontmost', return_value=None):
+		snap = _run(capture_focus(app))
 	assert snap == FocusSnapshot()
 
 
