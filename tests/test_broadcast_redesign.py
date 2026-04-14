@@ -7,7 +7,9 @@ import pytest
 sys.path.insert(0, str(__import__('pathlib').Path(__file__).parent))
 from conftest import ita
 
-pytestmark = [pytest.mark.broadcast]
+# #394: every test here uses the `session` fixture → real iTerm2 session.
+# Must run integration-only so the fast lane stays hermetic.
+pytestmark = [pytest.mark.broadcast, pytest.mark.integration]
 
 
 def test_broadcast_add_merges_into_existing_domain(session):

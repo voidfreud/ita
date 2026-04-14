@@ -257,3 +257,33 @@ def pytest_collection_modifyitems(config, items):
 	for item in items:
 		if not iterm2_up and ('integration' in item.keywords or 'stress' in item.keywords):
 			item.add_marker(skip)
+
+
+# ── #394: hermetic-fast-lane enforcement (opt-in) ─────────────────────────
+# Fast lane MUST NOT spawn iTerm2 windows/tabs. Any test reaching for the
+# iTerm2 Python API belongs in the `integration` lane. Setting
+# ITA_ENFORCE_HERMETIC=1 wires a hard-fail: the first attempt to open an
+# iterm2 RPC from a non-integration test raises loudly instead of silently
+# stealing focus. Off by default (local dev doesn't want the extra friction),
+# on in CI to stop regressions from landing.
+
+def pytest_sessionstart(session):
+	if os.environ.get('ITA_ENFORCE_HERMETIC') != '1':
+		return
+	try:
+		import iterm2  # singleton
+	except Exception:
+		return
+	_real_run = getattr(iterm2, 'run_until_complete', None)
+	if _real_run is None:
+		return
+
+	def _hermetic_guard(*_a, **_kw):
+		raise RuntimeError(
+			"ITA_ENFORCE_HERMETIC=1: a fast-lane test attempted to connect "
+			"to iTerm2 via iterm2.run_until_complete. Mark the test "
+			"@pytest.mark.integration or refactor it to use CliRunner with "
+			"mocked iterm2. See issue #394."
+		)
+
+	iterm2.run_until_complete = _hermetic_guard

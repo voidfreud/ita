@@ -9,7 +9,10 @@ import pytest
 sys.path.insert(0, str(__import__('pathlib').Path(__file__).parent))
 from conftest import ita, ita_ok, _extract_sid
 
-pytestmark = [pytest.mark.regression]
+# #394: every test here touches iTerm2 — either via the `session` fixture
+# or by calling `ita new` / other live commands directly. Integration-only
+# so the fast lane stays hermetic.
+pytestmark = [pytest.mark.regression, pytest.mark.integration]
 
 
 # ── #282 write-lock PPID ──────────────────────────────────────────────────────
