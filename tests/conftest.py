@@ -121,7 +121,9 @@ def session(request):
 	closes that window in teardown too (otherwise iTerm2 leaves an orphan
 	default-shell window behind when our session is closed).
 	"""
-	safe_name = (TEST_SESSION_PREFIX + request.node.name[:30]).replace(' ', '_')
+	# #380: use the full test node name (with parametrize bracket spec)
+	# so every ita-test-* object is legible in iTerm2's session list.
+	safe_name = (TEST_SESSION_PREFIX + request.node.name).replace(' ', '_')
 	windows_before = _all_window_ids()
 	r = ita('new', '--name', safe_name)
 	assert r.returncode == 0, f"Failed to create session: {r.stderr}"
@@ -143,7 +145,8 @@ def shared_session(request):
 	"""Module-scoped session for read-only tests (faster than per-test).
 
 	#348: same window-tracking discipline as `session`."""
-	safe_name = (TEST_SESSION_PREFIX + 'shared-' + request.module.__name__[:20]).replace(' ', '_')
+	# #380: full module name for legibility.
+	safe_name = (TEST_SESSION_PREFIX + 'shared-' + request.module.__name__).replace(' ', '_')
 	windows_before = _all_window_ids()
 	r = ita('new', '--name', safe_name)
 	assert r.returncode == 0, f"Failed to create module session: {r.stderr}"
