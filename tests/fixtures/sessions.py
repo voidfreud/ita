@@ -33,7 +33,8 @@ def session_factory(request):
 	request.addfinalizer(_teardown)
 
 	def create(n: int = 1) -> list[str]:
-		safe_base = (TEST_SESSION_PREFIX + request.node.name[:20]).replace(' ', '_')
+		# #380: full node name for legibility in iTerm2's session list.
+		safe_base = (TEST_SESSION_PREFIX + request.node.name).replace(' ', '_')
 		# TESTING.md §4.1 L2: register each successful sid into all_sids
 		# IMMEDIATELY (not after the batch). If create() raises mid-batch,
 		# the addfinalizer still cleans up everything we managed to spin up.
@@ -98,8 +99,9 @@ def shell(request):
 	Fish is skipped automatically when ``shutil.which("fish")`` returns None.
 	"""
 	shell_name: str = request.param
+	# #380: full node name for legibility in iTerm2's session list.
 	safe_name = (
-		TEST_SESSION_PREFIX + "shell-" + shell_name + "-" + request.node.name[:15]
+		TEST_SESSION_PREFIX + "shell-" + shell_name + "-" + request.node.name
 	).replace(" ", "_")
 
 	r = ita("new", "--name", safe_name, "--run", f"exec {shell_name}\n")

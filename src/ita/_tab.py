@@ -2,6 +2,7 @@
 """Tab commands: new, close, activate, navigate, list, info, detach, move, profile, title."""
 import asyncio
 import json
+import os
 import click
 import iterm2
 from ._core import cli, run_iterm, next_free_name, _fresh_name, capture_focus, restore_focus
@@ -29,6 +30,9 @@ def tab_new(window_id, tab_name, profile, background):
 	is required; there is no implicit 'current window' fallback.
 	CONTRACT §2 "Mandatory naming on creation (#342)" — when `--name` is
 	absent, the tab is titled with the lowest free `t<N>` counter."""
+	# #379: env-var fallback so fixtures can opt into background suite-wide.
+	if not background and os.environ.get('ITA_DEFAULT_BACKGROUND') == '1':
+		background = True
 	if not window_id:
 		raise ItaError("bad-args",
 			"no window specified. Use --window NAME or --window UUID-PREFIX. "

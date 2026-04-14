@@ -10,7 +10,28 @@ Cleanup discipline (TESTING.md §4.1, #341):
 Layers L3 + L4 added here as the catastrophic-leak circuit breaker.
 """
 import atexit
+import os
 import pytest
+
+# #379: fixtures create sessions/tabs/windows in the background by default
+# so test runs don't steal focus from the human at the keyboard. Opt-out
+# in a specific test with monkeypatch.delenv('ITA_DEFAULT_BACKGROUND', False).
+os.environ.setdefault('ITA_DEFAULT_BACKGROUND', '1')
+
+# #384: suppress the "Last login: <date> on ttys###" banner macOS prints
+# when a new login shell starts. The banner scrolls every test-created
+# session by two lines, which pushes prompts out of sight during capture
+# assertions. Touching ~/.hushlogin is the Unix-standard way to silence
+# it; zero-byte file, idempotent, creates only if missing.
+try:
+	from pathlib import Path as _Path
+	_hush = _Path.home() / '.hushlogin'
+	if not _hush.exists():
+		_hush.touch()
+except Exception:
+	# Best-effort: a read-only home or weird permissions shouldn't break
+	# the test run. Banner is cosmetic, not correctness.
+	pass
 
 from helpers import (  # noqa: F401
 	ITA, ita, ita_ok, _extract_sid, _all_session_ids,
@@ -53,6 +74,12 @@ atexit.register(_atexit_close_test_sessions)
 
 LEAK_CEILING = 50
 
+# #383: mid-suite leak audit. Snapshots ita-test-* session count at the
+# start of each test, compares in teardown, logs delta to stderr when it
+# looks suspicious. Non-fatal (the L4 hard-ceiling handles that) — purpose
+# is locating *which* test leaks when cumulative counts drift upward.
+_LEAK_SNAPSHOT: dict[str, int] = {}
+
 
 def _count_test_sessions() -> int:
 	try:
@@ -66,6 +93,15 @@ def _count_orphan_windows() -> int:
 		return len(_orphan_default_windows())
 	except Exception:
 		return 0
+
+
+def pytest_runtest_setup(item):
+	"""#383: snapshot session/window count before the test runs, so the
+	teardown hook can compute a delta. Skipped on the contract fast-lane
+	(same rationale as the teardown hook — those tests don't touch iTerm2)."""
+	if 'contract' in item.keywords and 'integration' not in item.keywords:
+		return
+	_LEAK_SNAPSHOT[item.nodeid] = _count_test_sessions()
 
 
 def pytest_runtest_teardown(item, nextitem):
@@ -82,6 +118,17 @@ def pytest_runtest_teardown(item, nextitem):
 		return
 	sess_count = _count_test_sessions()
 	win_count = _count_orphan_windows()
+	# #383: mid-suite leak audit. Log (non-fatally) when a test leaves more
+	# ita-test-* sessions than it started with — the teardown finalizers
+	# ran, so any delta means a fixture teardown missed something.
+	before = _LEAK_SNAPSHOT.pop(item.nodeid, None)
+	if before is not None and sess_count > before:
+		import sys
+		print(
+			f"\n[leak-audit #383] {item.nodeid}: "
+			f"ita-test-* sessions {before} -> {sess_count} (+{sess_count - before})",
+			file=sys.stderr,
+		)
 	if sess_count > LEAK_CEILING or win_count > LEAK_CEILING:
 		try:
 			_close_test_sessions(_open_test_sessions())
@@ -115,7 +162,9 @@ def session(request):
 	closes that window in teardown too (otherwise iTerm2 leaves an orphan
 	default-shell window behind when our session is closed).
 	"""
-	safe_name = (TEST_SESSION_PREFIX + request.node.name[:30]).replace(' ', '_')
+	# #380: use the full test node name (with parametrize bracket spec)
+	# so every ita-test-* object is legible in iTerm2's session list.
+	safe_name = (TEST_SESSION_PREFIX + request.node.name).replace(' ', '_')
 	windows_before = _all_window_ids()
 	r = ita('new', '--name', safe_name)
 	assert r.returncode == 0, f"Failed to create session: {r.stderr}"
@@ -137,7 +186,8 @@ def shared_session(request):
 	"""Module-scoped session for read-only tests (faster than per-test).
 
 	#348: same window-tracking discipline as `session`."""
-	safe_name = (TEST_SESSION_PREFIX + 'shared-' + request.module.__name__[:20]).replace(' ', '_')
+	# #380: full module name for legibility.
+	safe_name = (TEST_SESSION_PREFIX + 'shared-' + request.module.__name__).replace(' ', '_')
 	windows_before = _all_window_ids()
 	r = ita('new', '--name', safe_name)
 	assert r.returncode == 0, f"Failed to create module session: {r.stderr}"
